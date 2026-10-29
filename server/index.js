@@ -688,8 +688,12 @@ app.use((error, _request, response, _next) => {
   response.status(status).json({ error: message || 'Unexpected server error.' });
 });
 
-app.listen(port, () => {
-  console.log(`BUDO Studio API listening on http://localhost:${port}`);
-  console.log(`Storage: ${supabase ? 'Supabase' : 'local memory fallback'} | Cloudinary: ${hasCloudinary ? 'enabled' : 'disabled'} | Gemini: ${hasGemini ? 'enabled' : 'disabled'}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`BUDO Studio API listening on http://localhost:${port}`);
+    console.log(`Storage: ${supabase ? 'Supabase' : 'local memory fallback'} | Cloudinary: ${hasCloudinary ? 'enabled' : 'disabled'} | Gemini: ${hasGemini ? 'enabled' : 'disabled'}`);
+  });
+}
+
+module.exports = app;
 
