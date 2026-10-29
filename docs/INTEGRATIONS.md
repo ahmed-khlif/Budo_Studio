@@ -14,7 +14,7 @@ For administrator access, set `ADMIN_EMAILS=admin@example.com` as a temporary se
 
 The service-role key remains server-only. The React bundle receives only the publishable/anon key and uses Supabase Auth plus Realtime.
 
-This is a Vite/React client, so the Next.js `page.tsx`, cookie server client, and Next middleware examples are not used. The browser helper is `frontend/src/supabase/client.js`; `createBrowserClient` manages the browser session and refresh behavior. The Express API still requires `SUPABASE_SERVICE_ROLE_KEY` for server-side database access.
+This is a Vite/React client, so the Next.js `page.tsx`, cookie server client, and Next middleware examples are not used. The main editor uses the browser Supabase SDK loaded by `legacy-config.js`; the Express API still requires `SUPABASE_SERVICE_ROLE_KEY` for server-side database access.
 
 ## Cloudinary
 

@@ -7,3 +7,4 @@ frontend/.env
 frontend/.env.local
 npm-debug.log*
 *.log
+docs/DIPLOMA_EDITOR_CODE.md
