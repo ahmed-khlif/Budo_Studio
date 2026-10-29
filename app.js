@@ -31,6 +31,8 @@ const uid=()=>crypto.randomUUID?.()??`id_${Date.now()}_${Math.random().toString(
 const pad=(x,n=2)=>String(x).padStart(n,'0');
 const today=()=>{const d=new Date();return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`};
 const cleanString=x=>x===null||x===undefined?'':String(x).trim();
+const normalizeDigits=x=>cleanString(x).replace(/[٠-٩]/g,ch=>String(ch.charCodeAt(0)-1632)).replace(/[۰-۹]/g,ch=>String(ch.charCodeAt(0)-1776));
+const officialSerial=x=>{const value=normalizeDigits(x);return /^\d+$/.test(value)&&Number(value)>0?value:''};
 const beltOf=id=>BELTS.find(b=>b.id===id);
 const backgroundBelt=id=>{const cols=beltOf(id)?.swatches||['#ddd'];return cols.length===1?cols[0]:`linear-gradient(125deg,${cols[0]} 49%,${cols[1]} 51%)`};
 const fontFamily=name=>({Mirza:'Mirza',MirzaImported:'MirzaImported',Amiri:'Amiri',Arial:'Arial',Georgia:'Georgia',Times:'Times New Roman',Tahoma:'Tahoma'})[name]||'Mirza';
@@ -73,7 +75,7 @@ function candidateValue(field,candidate){
  if(field.source==='custom')return cleanString(field.sample);
  if(!candidate)return cleanString(field.sample||SAMPLE[field.source]);
  if(field.source==='kyu')return candidate.kyu?`${candidate.kyu}ème Kyu`:'';
- if(field.source==='serial')return cleanString(candidate.serial||candidate.ordinal);
+ if(field.source==='serial')return officialSerial(candidate.serial)||officialSerial(candidate.ordinal);
  return cleanString(candidate[field.source]);
 }
 function beltOptionHtml(selected){return BELTS.map(b=>`<option value="${html(b.id)}" ${b.id===selected?'selected':''}>${html(b.id)}</option>`).join('')}
@@ -137,9 +139,9 @@ async function inspectExcelFile(file){if(!/\.xlsx$/i.test(file.name))throw Error
  const output=[];for(const sheet of nodes(workbook,'sheet')){
   const name=sheet.getAttribute('name')||'Feuille';const rid=sheet.getAttribute('r:id')||sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');let path=relationships[rid];if(!path)continue;path=path.startsWith('/')?path.slice(1):`xl/${path.replace(/^\.\//,'')}`;const doc=readXML(await get(path));
   const table=new Map();for(const row of nodes(doc,'row')){for(const cell of nodes(row,'c')){const address=cell.getAttribute('r');if(!address)continue;const type=cell.getAttribute('t')||'n';const v=firstNode(cell,'v');const inline=firstNode(cell,'is');let value=v?v.textContent:(inline?nodes(inline,'t').map(x=>x.textContent).join(''):'');if(type==='s')value=shared[+value]??'';if(type==='n'&&value!=='')value=Number(value);table.set(address,value)}}
-  const getCell=(address)=>table.get(address);const serialHeader=[...table.entries()].find(([,value])=>/(رقم\s*(ال)?تسلسلي|تسلسلي|official\s*(number|no)|serial\s*(number|no)|num[ée]ro\s*(officiel|s[ée]rie))/i.test(cleanString(value)));const serialColumn=serialHeader?.[0].match(/^[A-Z]+/i)?.[0].toUpperCase()||'E';const belt=cleanString(getCell('D6')),kyu=Number(getCell('C6'))||null,examDate=dateValue(getCell('B6'));
+  const getCell=(address)=>table.get(address);const serialPattern=/(ال)?رقم\s*(ال)?تسلسلي|تسلسلي|official\s*(number|no)|serial\s*(number|no)|num[ée]ro\s*(officiel|s[ée]rie)/i;const serialHeader=[...table.entries()].filter(([,value])=>serialPattern.test(cleanString(value))).sort(([a,first],[b,second])=>{const score=(address,value)=>{const text=cleanString(value),row=Number(String(address).match(/\d+/)?.[0]||0);let rank=0;if(/^(ال)?رقم\s*(ال)?تسلسلي$/i.test(text)||/official\s*(number|no)|serial\s*(number|no)|num[ée]ro\s*(officiel|s[ée]rie)/i.test(text))rank+=100;if(/آخر|بداية|عدد|last|start|count/i.test(text))rank-=100;if(row>=11)rank+=20;return rank};return score(b,second)-score(a,first)})[0];const serialColumn=serialHeader?.[0].match(/^[A-Z]+/i)?.[0].toUpperCase()||'E';const belt=cleanString(getCell('D6')),kyu=Number(getCell('C6'))||null,examDate=dateValue(getCell('B6'));
   const rows=[];const rowNumbers=[...new Set([...table.keys()].map(key=>Number(key.match(/\d+/)?.[0])).filter(n=>n>=13))].sort((a,b)=>a-b);
-  for(const n of rowNumbers){const candidateName=cleanString(getCell('D'+n));if(!candidateName)continue;const serial=cleanString(getCell(`${serialColumn}${n}`))||cleanString(getCell('E'+n));rows.push({id:uid(),name:candidateName,birth:dateValue(getCell('B'+n)),obtained:dateValue(getCell('A'+n)),examDate,ordinal:serial,serial,belt:beltOf(belt)?belt:'',kyu,origin:`${file.name} · ${name} · ligne ${n}`})}
+  for(const n of rowNumbers){const candidateName=cleanString(getCell('D'+n));if(!candidateName)continue;const serial=officialSerial(getCell(`${serialColumn}${n}`))||officialSerial(getCell('E'+n));rows.push({id:uid(),name:candidateName,birth:dateValue(getCell('B'+n)),obtained:dateValue(getCell('A'+n)),examDate,ordinal:serial,serial,belt:beltOf(belt)?belt:'',kyu,origin:`${file.name} · ${name} · ligne ${n}`})}
   output.push({id:uid(),file:file.name,sheet:name,belt:beltOf(belt)?belt:'',kyu,examDate:examDate||today(),declaredCount:Number(getCell('E6'))||null,candidates:rows});
  }
  return output;
@@ -185,12 +187,12 @@ async function handleExcel(files){
  };
  draw();
 }
-function candidateErrors(c){const errors=[];const officialSerial=cleanString(c.serial||c.ordinal);
+function candidateErrors(c){const errors=[];const serial=officialSerial(c.serial)||officialSerial(c.ordinal);
  if(!cleanString(c.name))errors.push('Nom absent');
  if(!cleanString(c.birth))errors.push('Date de naissance absente');
  if(!cleanString(c.obtained))errors.push('Date de grade absente');
  if(!beltOf(c.belt))errors.push('Ceinture absente');
- if(!/^\d+$/.test(officialSerial)||Number(officialSerial)<=0)errors.push('Numéro officiel absent');
+ if(!serial)errors.push('Numéro officiel absent');
  if(!state.templates[c.belt])errors.push('Modèle de ceinture manquant');
  if(c.belt==='أصفر'&&c.kyu&&Number(c.kyu)!==9)errors.push('Grade incohérent : jaune = 9ème Kyu');
  if(cleanString(c.serial)&&state.candidates.some(x=>x.id!==c.id&&cleanString(x.serial)===cleanString(c.serial)))errors.push('Numéro en double');
@@ -214,14 +216,14 @@ function filteredCandidates(){
 }
 function selectedCandidates(){return state.candidates.filter(c=>state.selectedIds.has(c.id))}
 function touchSelection(){persist();renderCandidates()}
-function renderCandidates(){state.candidates=state.candidates.map(candidate=>candidate.serial?candidate:{...candidate,serial:cleanString(candidate.ordinal)});
+function renderCandidates(){state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)}));
  renderBeltSelectors();
  $('#candidate-status').value=state.filterStatus;$('#candidate-sort').value=state.candidateSort;$('#candidate-page-size').value=String(state.pageSize);
  const rows=filteredCandidates(),pages=Math.max(1,Math.ceil(rows.length/state.pageSize));state.currentPage=clamp(state.currentPage,1,pages);
  const start=(state.currentPage-1)*state.pageSize,view=rows.slice(start,start+state.pageSize);
  $('#candidates-body').innerHTML=view.map(c=>{
-  const errors=candidateErrors(c);const officialSerial=cleanString(c.serial||c.ordinal);
-  return `<tr class="${state.selectedIds.has(c.id)?'row-selected':''}"><td><input type="checkbox" class="row-checkbox" data-select="${html(c.id)}" ${state.selectedIds.has(c.id)?'checked':''} aria-label="Sélectionner ${html(c.name)}"></td><td><span class="status ${errors.length?'bad':'good'}" title="${html(errors.join(' · '))}">${errors.length?'À compléter':'Prêt'}</span></td><td><span class="num">${html(c.serial||'—')}</span></td><td><span class="arabic" dir="rtl">${html(c.name||'—')}</span><span class="sub">${html(c.origin||'Saisie manuelle')}</span></td><td dir="rtl">${html(c.birth||'—')}</td><td dir="rtl">${html(c.obtained||'—')}</td><td><span class="belt-cell"><i class="belt-mini" style="background:${backgroundBelt(c.belt)}"></i>${html(c.belt||'Non définie')}</span></td><td><div class="table-actions"><button class="mini-btn" title="Modifier" data-edit="${html(c.id)}">✎</button><button class="mini-btn" title="Voir le certificat" data-preview="${html(c.id)}">◉</button><button class="mini-btn danger" title="Supprimer" data-delete="${html(c.id)}">✕</button></div></td></tr>`;
+  const errors=candidateErrors(c);const serial=officialSerial(c.serial)||officialSerial(c.ordinal);
+  return `<tr class="${state.selectedIds.has(c.id)?'row-selected':''}"><td><input type="checkbox" class="row-checkbox" data-select="${html(c.id)}" ${state.selectedIds.has(c.id)?'checked':''} aria-label="Sélectionner ${html(c.name)}"></td><td><span class="status ${errors.length?'bad':'good'}" title="${html(errors.join(' · '))}">${errors.length?'À compléter':'Prêt'}</span></td><td><span class="num">${html(serial||'—')}</span></td><td><span class="arabic" dir="rtl">${html(c.name||'—')}</span><span class="sub">${html(c.origin||'Saisie manuelle')}</span></td><td dir="rtl">${html(c.birth||'—')}</td><td dir="rtl">${html(c.obtained||'—')}</td><td><span class="belt-cell"><i class="belt-mini" style="background:${backgroundBelt(c.belt)}"></i>${html(c.belt||'Non définie')}</span></td><td><div class="table-actions"><button class="mini-btn" title="Modifier" data-edit="${html(c.id)}">✎</button><button class="mini-btn" title="Voir le certificat" data-preview="${html(c.id)}">◉</button><button class="mini-btn danger" title="Supprimer" data-delete="${html(c.id)}">✕</button></div></td></tr>`;
  }).join('')||'<tr><td colspan="8" class="blank-table">Aucun candidat pour ces filtres. Importez votre Excel ou modifiez les filtres.</td></tr>';
  $('#rows-foot').textContent=`${rows.length} résultats · ${state.candidates.length} candidats au total`;
  $('#selection-tally').textContent=`${state.selectedIds.size} sélectionné(s)`;
