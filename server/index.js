@@ -16,6 +16,10 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const workspaceDefault = 'default';
 const requireAuth = String(process.env.REQUIRE_AUTH || 'false').toLowerCase() === 'true';
+const adminEmails = new Set(String(process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean));
 const corsOrigins = String(process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:8787')
   .split(',')
   .map((origin) => origin.trim())
@@ -62,9 +66,10 @@ const memory = {
   assets: new Map(),
 };
 
-const hasSupabase = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabaseServerKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const hasSupabase = Boolean(process.env.SUPABASE_URL && supabaseServerKey);
 const supabase = hasSupabase
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+  ? createClient(process.env.SUPABASE_URL, supabaseServerKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
   : null;
@@ -110,11 +115,24 @@ async function authenticatedUser(request) {
   return data.user;
 }
 
+function isAdminUser(user) {
+  if (!user) return false;
+  return user.app_metadata?.role === 'admin' || adminEmails.has(String(user.email || '').toLowerCase());
+}
+
+async function requireAdmin(request) {
+  const user = await authenticatedUser(request);
+  if (!user) throw authError('Authentication is required for admin access.', 401);
+  if (!isAdminUser(user)) throw authError('Administrator access is required.', 403);
+  if (!supabase) throw authError('Supabase authentication is not configured on the API.', 503);
+  return user;
+}
+
 async function workspaceOf(request) {
   const requested = String(request.header('x-workspace-id') || '').trim().slice(0, 100);
   const user = await authenticatedUser(request);
   if (!user) return requested || workspaceDefault;
-  const userWorkspace = String(user.user_metadata?.workspace_id || user.id).trim();
+  const userWorkspace = String(user.app_metadata?.workspace_id || user.id).trim();
   if (requested && requested !== 'default' && requested !== userWorkspace) throw authError('You do not have access to this workspace.', 403);
   return requested && requested !== 'default' ? requested : userWorkspace;
 }
@@ -395,16 +413,73 @@ async function generateText(contents, config = {}) {
   return response.text || '';
 }
 
-app.get('/api/health', (_request, response) => {
+app.get('/api/health', async (_request, response) => {
+  let schemaReady = !supabase;
+  let schemaError = null;
+  if (supabase) {
+    const { error } = await supabase.from('candidates').select('id').limit(1);
+    schemaReady = !error;
+    schemaError = error?.code === 'PGRST205' ? 'Run supabase/schema.sql in the connected project.' : (error?.message || null);
+  }
   response.json({
     ok: true,
     service: 'budo-studio-api',
     storage: supabase ? 'supabase' : 'memory',
+    schemaReady,
+    schemaError,
     authRequired: requireAuth,
     cloudinary: hasCloudinary,
     gemini: hasGemini,
     clientSideExports: true,
   });
+});
+
+app.get('/api/admin/access', async (request, response, next) => {
+  try {
+    const user = await authenticatedUser(request);
+    response.json({
+      authenticated: Boolean(user),
+      isAdmin: isAdminUser(user),
+      user: user ? { id: user.id, email: user.email || null } : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/users', async (request, response, next) => {
+  try {
+    await requireAdmin(request);
+    const page = Math.max(1, Number(request.query.page || 1));
+    const perPage = Math.min(100, Math.max(1, Number(request.query.perPage || 50)));
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    response.json((data.users || []).map((user) => ({
+      id: user.id,
+      email: user.email || null,
+      role: user.app_metadata?.role === 'admin' ? 'admin' : 'member',
+      createdAt: user.created_at,
+      lastSignInAt: user.last_sign_in_at,
+    })));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/admin/users/:id/role', async (request, response, next) => {
+  try {
+    await requireAdmin(request);
+    const role = request.body?.role;
+    if (role !== 'admin' && role !== 'member') return response.status(400).json({ error: 'Role must be admin or member.' });
+    const { data: existing, error: getError } = await supabase.auth.admin.getUserById(request.params.id);
+    if (getError || !existing.user) return response.status(404).json({ error: 'User not found.' });
+    const appMetadata = { ...(existing.user.app_metadata || {}), role };
+    const { data, error } = await supabase.auth.admin.updateUserById(request.params.id, { app_metadata: appMetadata });
+    if (error) throw error;
+    response.json({ id: data.user.id, email: data.user.email || null, role });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/candidates', async (request, response, next) => {
@@ -594,7 +669,10 @@ app.post('/api/ai/extract-candidate', upload.single('file'), async (request, res
   }
 });
 
-app.use('/workspace', express.static(path.resolve(__dirname, '..', 'frontend', 'dist')));
+const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
+app.use('/workspace', express.static(frontendDist));
+app.get('/', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
+app.get('/legacy', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
 app.use(express.static(path.resolve(__dirname, '..')));
 
 app.use((error, _request, response, _next) => {

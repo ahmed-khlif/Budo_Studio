@@ -6,9 +6,11 @@ The application runs locally with an in-memory adapter, but production mode shou
 
 1. Create a Supabase project.
 2. Run [`../supabase/schema.sql`](../supabase/schema.sql) in the SQL editor.
-3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the server `.env`.
+3. Set `SUPABASE_URL` and either the server-only `SUPABASE_SECRET_KEY` (`sb_secret_...`) or legacy `SUPABASE_SERVICE_ROLE_KEY` in the server `.env`.
 4. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_REQUIRE_AUTH=true` in `frontend/.env.local` (the legacy `VITE_SUPABASE_ANON_KEY` name is also supported).
 5. Set `REQUIRE_AUTH=true` in the server `.env`.
+
+For administrator access, set `ADMIN_EMAILS=admin@example.com` as a temporary server-only bootstrap allowlist, or set the user’s trusted Supabase `app_metadata.role` to `admin`. The API exposes `/api/admin/access`, `/api/admin/users`, and `PUT /api/admin/users/:id/role`. Do not use editable `user_metadata` for authorization.
 
 The service-role key remains server-only. The React bundle receives only the publishable/anon key and uses Supabase Auth plus Realtime.
 
@@ -31,4 +33,4 @@ npm run build:full
 npm start
 ```
 
-Then open `http://localhost:8787/workspace/`.
+Then open `http://localhost:8787/` for the original full BUDO Studio main app. The React migration is available separately at `/workspace/` while its remaining legacy features are being consolidated.

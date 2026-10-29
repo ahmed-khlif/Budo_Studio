@@ -43,8 +43,16 @@
   </div>
 </main>
 </div>
+<section id="backend-tools" class="backend-tools panel" aria-label="Services connectés">
+  <div><strong id="backend-status">Connexion aux services…</strong><small id="backend-status-detail">Supabase · Cloudinary · Gemini</small></div>
+  <button class="btn secondary small" id="btn-backend-login">Connexion</button><button class="btn primary small" id="btn-save-backend">Enregistrer tout</button>
+  <label class="backend-ai-prompt"><span>Brainstorming IA</span><textarea id="legacy-ai-prompt" rows="2" placeholder="Décrivez une idée de certificat…"></textarea></label>
+  <button class="btn secondary small" id="btn-ai-brainstorm">Suggérer</button>
+  <button class="btn secondary small" id="btn-ai-ocr">OCR candidat</button><input type="file" id="legacy-ocr-file" accept="image/png,image/jpeg,image/webp" hidden>
+  <div id="legacy-ai-result" class="backend-ai-result" hidden></div>
+</section>
 <input type="file" id="excel-file" accept=".xlsx" multiple hidden>
 <div id="modal-root"></div>
 <div id="toast-root" aria-live="polite"></div>
-<script src="vendor/jszip.min.js"></script><script src="app.js"></script>
+<script src="vendor/jszip.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="legacy-config.js"></script><script src="app.js"></script>
 </body></html>
