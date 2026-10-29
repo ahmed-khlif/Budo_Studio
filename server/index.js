@@ -417,7 +417,12 @@ app.get('/api/health', async (_request, response) => {
   let schemaReady = !supabase;
   let schemaError = null;
   if (supabase) {
-    const { error } = await supabase.from('candidates').select('id').limit(1);
+    const checks = await Promise.all([
+      supabase.from('candidates').select('id').limit(1),
+      supabase.from('template_presets').select('id').limit(1),
+      supabase.from('template_assets').select('id').limit(1),
+    ]);
+    const error = checks.map((result) => result.error).find(Boolean);
     schemaReady = !error;
     schemaError = error?.code === 'PGRST205' ? 'Run supabase/schema.sql in the connected project.' : (error?.message || null);
   }
