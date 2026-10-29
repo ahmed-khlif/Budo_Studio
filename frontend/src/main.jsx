@@ -7,7 +7,10 @@ import './styles.css';
 import './auth.css';
 
 const API = import.meta.env.VITE_API_URL || '/api';
-const authRequired = Boolean(supabase && import.meta.env.VITE_REQUIRE_AUTH === 'true');
+// The main BUDO Studio app is public: visitors can open the editor without a
+// Supabase login. Supabase sessions are still supported when users sign in,
+// but authentication must not block the main application shell.
+const authRequired = false;
 let currentSession = null;
 
 const emptyCandidate = { name: '', birth: '', obtained: '', serial: '', belt: '', kyu: '', examDate: '', ordinal: '', origin: 'Manual', status: 'incomplete' };

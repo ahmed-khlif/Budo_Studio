@@ -7,8 +7,8 @@ The application runs locally with an in-memory adapter, but production mode shou
 1. Create a Supabase project.
 2. Run [`../supabase/schema.sql`](../supabase/schema.sql) in the SQL editor.
 3. Set `SUPABASE_URL` and either the server-only `SUPABASE_SECRET_KEY` (`sb_secret_...`) or legacy `SUPABASE_SERVICE_ROLE_KEY` in the server `.env`.
-4. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_REQUIRE_AUTH=true` in `frontend/.env.local` (the legacy `VITE_SUPABASE_ANON_KEY` name is also supported).
-5. Set `REQUIRE_AUTH=true` in the server `.env`.
+4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `frontend/.env.local` (the legacy `VITE_SUPABASE_ANON_KEY` name is also supported). The main BUDO Studio editor opens without a login.
+5. Keep `REQUIRE_AUTH=false` in the server `.env` for the public main app. Set it to `true` only if you intentionally want to protect the API and require users to sign in.
 
 For administrator access, set `ADMIN_EMAILS=admin@example.com` as a temporary server-only bootstrap allowlist, or set the user’s trusted Supabase `app_metadata.role` to `admin`. The API exposes `/api/admin/access`, `/api/admin/users`, and `PUT /api/admin/users/:id/role`. Do not use editable `user_metadata` for authorization.
 
