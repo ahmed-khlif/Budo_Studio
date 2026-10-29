@@ -1,0 +1,142 @@
+-- BUDO Studio persistence foundation.
+-- Run this in the Supabase SQL editor before setting SUPABASE_URL and
+-- SUPABASE_SERVICE_ROLE_KEY in the server environment.
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.candidates (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null default 'default',
+  name text not null,
+  birth text,
+  obtained text,
+  serial text,
+  belt text,
+  kyu text,
+  exam_date text,
+  ordinal text,
+  origin text not null default 'Manual',
+  status text not null default 'incomplete' check (status in ('ready', 'incomplete', 'archived')),
+  source_image_url text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists candidates_workspace_created_idx on public.candidates (workspace_id, created_at desc);
+create index if not exists candidates_workspace_belt_idx on public.candidates (workspace_id, belt);
+
+create table if not exists public.template_presets (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null default 'default',
+  name text not null,
+  belt text,
+  description text,
+  config jsonb not null default '{}'::jsonb,
+  preview_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists template_presets_workspace_updated_idx on public.template_presets (workspace_id, updated_at desc);
+
+create table if not exists public.template_assets (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id text not null default 'default',
+  belt text,
+  name text not null,
+  cloudinary_url text not null,
+  cloudinary_public_id text not null,
+  preview_url text,
+  resource_type text not null default 'image',
+  mime_type text,
+  width integer,
+  height integer,
+  created_at timestamptz not null default now()
+);
+
+alter table public.template_assets add column if not exists preview_url text;
+alter table public.template_assets add column if not exists resource_type text not null default 'image';
+alter table public.template_assets add column if not exists mime_type text;
+
+create index if not exists template_assets_workspace_belt_idx on public.template_assets (workspace_id, belt);
+
+create or replace function public.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists candidates_touch_updated_at on public.candidates;
+create trigger candidates_touch_updated_at before update on public.candidates
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists template_presets_touch_updated_at on public.template_presets;
+create trigger template_presets_touch_updated_at before update on public.template_presets
+for each row execute function public.touch_updated_at();
+
+-- The API uses the service role server-side. Keep RLS enabled so a future
+-- browser client can be switched to authenticated workspace policies safely.
+alter table public.candidates enable row level security;
+alter table public.template_presets enable row level security;
+alter table public.template_assets enable row level security;
+
+drop policy if exists candidates_owner_select on public.candidates;
+create policy candidates_owner_select on public.candidates for select to authenticated
+using (workspace_id = auth.uid()::text);
+drop policy if exists candidates_owner_insert on public.candidates;
+create policy candidates_owner_insert on public.candidates for insert to authenticated
+with check (workspace_id = auth.uid()::text);
+drop policy if exists candidates_owner_update on public.candidates;
+create policy candidates_owner_update on public.candidates for update to authenticated
+using (workspace_id = auth.uid()::text) with check (workspace_id = auth.uid()::text);
+drop policy if exists candidates_owner_delete on public.candidates;
+create policy candidates_owner_delete on public.candidates for delete to authenticated
+using (workspace_id = auth.uid()::text);
+
+drop policy if exists template_presets_owner_select on public.template_presets;
+create policy template_presets_owner_select on public.template_presets for select to authenticated
+using (workspace_id = auth.uid()::text);
+drop policy if exists template_presets_owner_insert on public.template_presets;
+create policy template_presets_owner_insert on public.template_presets for insert to authenticated
+with check (workspace_id = auth.uid()::text);
+drop policy if exists template_presets_owner_update on public.template_presets;
+create policy template_presets_owner_update on public.template_presets for update to authenticated
+using (workspace_id = auth.uid()::text) with check (workspace_id = auth.uid()::text);
+drop policy if exists template_presets_owner_delete on public.template_presets;
+create policy template_presets_owner_delete on public.template_presets for delete to authenticated
+using (workspace_id = auth.uid()::text);
+
+drop policy if exists template_assets_owner_select on public.template_assets;
+create policy template_assets_owner_select on public.template_assets for select to authenticated
+using (workspace_id = auth.uid()::text);
+drop policy if exists template_assets_owner_insert on public.template_assets;
+create policy template_assets_owner_insert on public.template_assets for insert to authenticated
+with check (workspace_id = auth.uid()::text);
+drop policy if exists template_assets_owner_delete on public.template_assets;
+create policy template_assets_owner_delete on public.template_assets for delete to authenticated
+using (workspace_id = auth.uid()::text);
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'candidates') then
+      execute 'alter publication supabase_realtime add table public.candidates';
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'template_presets') then
+      execute 'alter publication supabase_realtime add table public.template_presets';
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'template_assets') then
+      execute 'alter publication supabase_realtime add table public.template_assets';
+    end if;
+  end if;
+end;
+$$;
+
+-- Add authenticated workspace policies before exposing the Supabase anon key
+-- to production users. The Express API uses the service role server-side;
+-- it does not expose that secret to the React bundle.
