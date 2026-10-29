@@ -7,7 +7,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:8787/`. The original BUDO Studio editor is the main app; the React migration is available at `http://localhost:8787/workspace/`.
+Open `http://localhost:8787/`. This is the single main BUDO Studio app containing the editor, candidates, imports, templates, AI tools, and exports. Old `/workspace/` links redirect to `/`.
 
 ## Enable Supabase persistence
 

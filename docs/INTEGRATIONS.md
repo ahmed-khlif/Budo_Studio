@@ -33,4 +33,4 @@ npm run build:full
 npm start
 ```
 
-Then open `http://localhost:8787/` for the original full BUDO Studio main app. The React migration is available separately at `/workspace/` while its remaining legacy features are being consolidated.
+Then open `http://localhost:8787/`. This is the only user-facing BUDO Studio app; older `/workspace/` links redirect to the same main editor.

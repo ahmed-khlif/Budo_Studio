@@ -674,8 +674,9 @@ app.post('/api/ai/extract-candidate', upload.single('file'), async (request, res
   }
 });
 
-const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
-app.use('/workspace', express.static(frontendDist));
+// Keep one user-facing product: the original full BUDO Studio app at `/`.
+// Older workspace links redirect back to the main app instead of opening a second UI.
+app.use('/workspace', (_request, response) => response.redirect(302, '/'));
 app.get('/', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
 app.get('/legacy', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
 app.use(express.static(path.resolve(__dirname, '..')));
