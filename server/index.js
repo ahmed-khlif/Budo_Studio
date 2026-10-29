@@ -14,6 +14,7 @@ const { z } = require('zod');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
+const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const workspaceDefault = 'default';
 const requireAuth = String(process.env.REQUIRE_AUTH || 'false').toLowerCase() === 'true';
 const adminEmails = new Set(String(process.env.ADMIN_EMAILS || '')
@@ -675,10 +676,13 @@ app.post('/api/ai/extract-candidate', upload.single('file'), async (request, res
 });
 
 // Keep one user-facing product: the original full BUDO Studio app at `/`.
-// Older workspace links redirect back to the main app instead of opening a second UI.
+// The main app is now the React build; older workspace links redirect back to it.
 app.use('/workspace', (_request, response) => response.redirect(302, '/'));
-app.get('/', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
+app.get('/', (_request, response) => response.sendFile(path.join(frontendDist, 'index.html'), (error) => {
+  if (error) response.sendFile(path.resolve(__dirname, '..', 'index.html'));
+}));
 app.get('/legacy', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
+app.use(express.static(frontendDist));
 app.use(express.static(path.resolve(__dirname, '..')));
 
 app.use((error, _request, response, _next) => {

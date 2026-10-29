@@ -14,10 +14,6 @@ function mainAppDeploymentPlugin() {
     name: 'budo-main-app-deployment',
     closeBundle() {
       const output = path.resolve(__dirname, 'dist');
-      fs.copyFileSync(path.join(repositoryRoot, 'index.html'), path.join(output, 'index.html'));
-      for (const file of ['app.js', 'style.css', 'legacy-config.js']) {
-        fs.copyFileSync(path.join(repositoryRoot, file), path.join(output, file));
-      }
       copyDirectory(path.join(repositoryRoot, 'assets'), path.join(output, 'assets'));
       copyDirectory(path.join(repositoryRoot, 'vendor'), path.join(output, 'vendor'));
     },
