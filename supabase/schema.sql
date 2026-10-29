@@ -66,6 +66,10 @@ grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.candidates to authenticated;
 grant select, insert, update, delete on public.template_presets to authenticated;
 grant select, insert, update, delete on public.template_assets to authenticated;
+grant usage on schema public to service_role;
+grant select, insert, update, delete on public.candidates to service_role;
+grant select, insert, update, delete on public.template_presets to service_role;
+grant select, insert, update, delete on public.template_assets to service_role;
 
 create or replace function public.touch_updated_at()
 returns trigger
