@@ -33,6 +33,7 @@ export const sampleCandidate = { id: 'sample', serial: '26361', name: 'حمزة 
 export function candidateValue(field, candidate) {
   if (field.source === 'custom') return field.text || '';
   if (field.source === 'kyu') return candidate?.kyu ? `${candidate.kyu}ème Kyu` : '';
+  if (field.source === 'serial') return String(candidate?.serial || candidate?.ordinal || field.text || '');
   return String(candidate?.[field.source] ?? field.text ?? '');
 }
 
@@ -151,7 +152,7 @@ export async function exportCertificateZip(candidates, config, onProgress) {
   const zip = new JSZip();
   for (let index = 0; index < candidates.length; index += 1) {
     const documentPdf = new ImagePdf().build(await renderPages([candidates[index],], config));
-    const safeName = `${candidates[index].serial || index + 1}_${candidates[index].name || 'candidate'}`.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 80);
+    const safeName = `${candidates[index].serial || candidates[index].ordinal || index + 1}_${candidates[index].name || 'candidate'}`.replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 80);
     zip.file(`BUDO_${safeName}.pdf`, documentPdf);
     onProgress?.(index + 1, candidates.length);
   }

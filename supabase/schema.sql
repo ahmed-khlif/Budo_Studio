@@ -1,6 +1,6 @@
 -- BUDO Studio persistence foundation.
 -- Run this in the Supabase SQL editor before setting SUPABASE_URL and
--- SUPABASE_SERVICE_ROLE_KEY in the server environment.
+-- SUPABASE_SECRET_KEY (or the legacy SUPABASE_SERVICE_ROLE_KEY) in the server environment.
 
 create extension if not exists pgcrypto;
 
@@ -60,6 +60,12 @@ alter table public.template_assets add column if not exists resource_type text n
 alter table public.template_assets add column if not exists mime_type text;
 
 create index if not exists template_assets_workspace_belt_idx on public.template_assets (workspace_id, belt);
+
+-- Expose the tables to Supabase's Data API while RLS remains the row-level gate.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.candidates to authenticated;
+grant select, insert, update, delete on public.template_presets to authenticated;
+grant select, insert, update, delete on public.template_assets to authenticated;
 
 create or replace function public.touch_updated_at()
 returns trigger
