@@ -16,7 +16,7 @@ function mainAppDeploymentPlugin() {
       const output = path.resolve(__dirname, 'dist');
       // The React entry renders the original BUDO Studio layout. These files
       // are runtime assets used by the existing editor during migration.
-      for (const file of ['app.js', 'style.css', 'legacy-config.js']) {
+      for (const file of ['app.js', 'style.css', 'legacy-config.js', 'budo_studio.png']) {
         fs.copyFileSync(path.join(repositoryRoot, file), path.join(output, file));
       }
       copyDirectory(path.join(repositoryRoot, 'assets'), path.join(output, 'assets'));
