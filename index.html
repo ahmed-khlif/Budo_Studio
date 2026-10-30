@@ -14,7 +14,7 @@
   <div class="side-bottom"><div class="private-label"><i></i><div><strong>Mode privé</strong><small>Traitement local dans le navigateur</small></div></div><small>SELF DEFENSE BUDO · V3.0</small></div>
 </aside>
 <main class="main">
-  <header class="topbar"><div class="breadcrumbs">BUDO STUDIO <span>›</span> <strong id="crumb">Éditeur de diplôme</strong></div><div class="topbar-right"><span class="save-dot"></span><span id="save-state">Configuration locale</span><button class="avatar" title="BUDO Studio">B</button></div></header>
+  <header class="topbar"><div class="breadcrumbs">BUDO STUDIO <span>›</span> <strong id="crumb">Éditeur de diplôme</strong></div><div class="topbar-right"><span class="save-dot"></span><span id="save-state">Configuration locale</span><span id="auth-state" class="auth-state">Mode public</span><button class="btn secondary small header-login" id="btn-header-login">Connexion</button><button class="avatar" title="BUDO Studio">B</button></div></header>
   <div class="page">
     <div class="page-head"><div><div class="eyebrow">SELF DEFENSE BUDO · CERTIFICATE DESIGNER</div><h1 id="page-title">Éditeur de diplôme</h1><p id="page-subtitle">Déplacez directement chaque zone sur le modèle, avec un aperçu fidèle en temps réel.</p></div><div class="header-actions"><button class="btn secondary" id="btn-load-demo">✧ &nbsp; Charger un exemple</button><button class="btn primary" id="btn-export">⇩ &nbsp; Exporter les diplômes</button></div></div>
 
@@ -33,6 +33,13 @@
         </div>
       </div>
       <section class="bottom-section panel"><div class="bottom-info"><h2>Bibliothèque des modèles</h2><p>Importez un fond vierge PNG/JPG ou PDF pour chaque ceinture. Chaque fond conserve ses propres zones, polices, couleurs et dimensions.</p></div><button class="btn secondary" id="btn-change-template">⇧ &nbsp; Remplacer le modèle de cette ceinture</button><input type="file" id="template-file" accept=".png,.jpg,.jpeg,.webp,.pdf,image/*,application/pdf" hidden></section>
+      <section id="backend-tools" class="backend-tools panel editor-ai-card" aria-label="Assistant IA et services connectés">
+        <div class="ai-card-header"><div><div class="eyebrow">ASSISTANT IA · GEMINI</div><h2>Brainstorming du modèle</h2><p>Décrivez le style souhaité et Gemini proposera des idées de mise en page, de couleurs et de texte.</p></div><div class="ai-status"><strong id="backend-status">Connexion aux services…</strong><small id="backend-status-detail">Supabase · Cloudinary · Gemini</small></div></div>
+        <div class="ai-card-toolbar"><button class="btn secondary small" id="btn-backend-login">Connexion</button><button class="btn primary small" id="btn-save-backend">Enregistrer tout</button><span class="ai-privacy">Les exports PDF et ZIP restent dans votre navigateur.</span></div>
+        <div class="ai-prompt-area"><label class="backend-ai-prompt"><span>Votre idée de certificat</span><textarea id="legacy-ai-prompt" rows="3" placeholder="Ex. Un diplôme premium bleu nuit et doré, avec une typographie arabe élégante…"></textarea></label><div class="ai-quick-prompts"><span>Suggestions rapides</span><button type="button" class="ai-chip" data-ai-prompt="Propose 3 mises en page premium bleu nuit et doré pour un diplôme de self-défense.">Premium bleu & doré</button><button type="button" class="ai-chip" data-ai-prompt="Propose une composition arabe moderne, lisible et équilibrée pour le nom et les dates.">Typographie arabe</button><button type="button" class="ai-chip" data-ai-prompt="Propose une version minimaliste avec beaucoup d'espace blanc et une hiérarchie claire.">Minimaliste</button></div></div>
+        <div class="ai-card-actions"><button class="btn primary" id="btn-ai-brainstorm">✦ Proposer des idées</button><button class="btn secondary small" id="btn-ai-ocr">OCR candidat</button><input type="file" id="legacy-ocr-file" accept="image/png,image/jpeg,image/webp" hidden></div>
+        <div id="legacy-ai-result" class="backend-ai-result" hidden></div>
+      </section>
     </section>
 
     <section class="tab-view hidden" id="view-overview"><div class="summary-grid"><div class="metric panel"><span>Candidats chargés</span><strong id="metric-total">0</strong><small>Fiches disponibles</small></div><div class="metric panel"><span>Ceintures représentées</span><strong id="metric-belts">0</strong><small>Sur les 11 types</small></div><div class="metric panel"><span>Diplômes prêts</span><strong id="metric-ready">0</strong><small>Modèle et données renseignés</small></div><div class="metric panel"><span>À compléter</span><strong id="metric-missing">0</strong><small>Avant génération PDF</small></div></div><div class="two-cols"><div class="panel intro-panel"><div class="section-heading"><h2>Importer la liste d'examen</h2><p>Le modèle fourni est détecté automatiquement. Vous choisissez la couleur si elle est absente.</p></div><div class="upload-area" id="overview-drop"><span class="upload-emoji">⇧</span><h3>Déposez un fichier Excel ici</h3><p>Accepte .xlsx (plusieurs fichiers, plusieurs feuilles).</p><button class="btn primary" data-trigger-import>Choisir un fichier Excel</button></div></div><div class="panel intro-panel"><div class="section-heading"><h2>Étapes de génération</h2><p>Contrôlez chaque étape avant de produire les certificats.</p></div><div class="flow-steps"><div><b>01</b><span>Importer Excel et attribuer les ceintures</span></div><div><b>02</b><span>Régler les zones sur chaque modèle par glisser-déposer</span></div><div><b>03</b><span>Corriger les noms, dates et numéros</span></div><div><b>04</b><span>Exporter PDF multipage ou ZIP par ceinture</span></div></div></div></div></section>
@@ -43,14 +50,6 @@
   </div>
 </main>
 </div>
-<section id="backend-tools" class="backend-tools panel" aria-label="Services connectés">
-  <div><strong id="backend-status">Connexion aux services…</strong><small id="backend-status-detail">Supabase · Cloudinary · Gemini</small></div>
-  <button class="btn secondary small" id="btn-backend-login">Connexion</button><button class="btn primary small" id="btn-save-backend">Enregistrer tout</button>
-  <label class="backend-ai-prompt"><span>Brainstorming IA</span><textarea id="legacy-ai-prompt" rows="2" placeholder="Décrivez une idée de certificat…"></textarea></label>
-  <button class="btn secondary small" id="btn-ai-brainstorm">Suggérer</button>
-  <button class="btn secondary small" id="btn-ai-ocr">OCR candidat</button><input type="file" id="legacy-ocr-file" accept="image/png,image/jpeg,image/webp" hidden>
-  <div id="legacy-ai-result" class="backend-ai-result" hidden></div>
-</section>
 <input type="file" id="excel-file" accept=".xlsx" multiple hidden>
 <div id="modal-root"></div>
 <div id="toast-root" aria-live="polite"></div>
