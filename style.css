@@ -41,3 +41,4 @@ html,body{min-width:320px}.sidebar{padding:9px 10px;gap:7px;align-items:center}.
 /* Keep Arabic glyphs fully visible inside certificate zones. Auto-fit handles width; vertical overflow must stay visible. */
 .field-inner{overflow:visible;line-height:1.05;padding:4px 0}
 .field-inner span{overflow:visible;line-height:1.05}
+ .upload-actions{display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap}

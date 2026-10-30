@@ -682,6 +682,46 @@ app.post('/api/ai/extract-candidate', upload.single('file'), async (request, res
   }
 });
 
+app.post('/api/ai/extract-exam-list', upload.single('file'), async (request, response, next) => {
+  try {
+    if (!request.file) return response.status(400).json({ error: 'Attach the exam list image or PDF as the file field.' });
+    await workspaceOf(request);
+    const text = await generateText([
+      { inlineData: { mimeType: request.file.mimetype, data: request.file.buffer.toString('base64') } },
+      { text: `Read this exam registration list carefully. Return ONLY valid JSON with this exact shape:
+{"examDate":"","belt":"","kyu":null,"candidates":[{"name":"","birth":"","obtained":"","serial":"","ordinal":""}]}
+Rules:
+- Preserve Arabic names exactly as visible, without translating them.
+- Extract the official serial number labelled رقم تسلسلي when present. Never invent a serial number.
+- Put the visible row number or order in ordinal only when it is clearly visible; otherwise use an empty string.
+- Use empty strings for unreadable text and null for an unreadable kyu.
+- Use the list's exam date, belt, and grade when visible.
+- Do not invent candidates, dates, serials, belts, or grades.
+- Include every readable candidate row, in the original order.` },
+    ], { responseMimeType: 'application/json' });
+    const extracted = extractJson(text);
+    const candidates = Array.isArray(extracted) ? extracted : extracted?.candidates;
+    if (!Array.isArray(candidates)) return response.status(422).json({ error: 'Gemini could not identify a candidate list.', raw: text });
+    response.json({
+      needsReview: true,
+      exam: {
+        examDate: cleanNullable(extracted?.examDate) || '',
+        belt: cleanNullable(extracted?.belt) || '',
+        kyu: extracted?.kyu ?? null,
+        candidates: candidates.slice(0, 4000).map(candidate => ({
+          name: cleanNullable(candidate?.name) || '',
+          birth: cleanNullable(candidate?.birth) || '',
+          obtained: cleanNullable(candidate?.obtained) || '',
+          serial: cleanNullable(candidate?.serial) || '',
+          ordinal: cleanNullable(candidate?.ordinal) || '',
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Keep one user-facing product: the React-authenticated BUDO Studio at `/`.
 // Never expose the legacy HTML shell directly: it does not mount AuthGate.
 app.use('/workspace', (_request, response) => response.redirect(302, '/'));
