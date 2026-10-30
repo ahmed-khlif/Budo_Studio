@@ -688,17 +688,21 @@ app.post('/api/ai/extract-exam-list', upload.single('file'), async (request, res
     await workspaceOf(request);
     const text = await generateText([
       { inlineData: { mimeType: request.file.mimetype, data: request.file.buffer.toString('base64') } },
-      { text: `Read this exam registration list carefully. Return ONLY valid JSON with this exact shape:
-{"examDate":"","belt":"","kyu":null,"candidates":[{"name":"","birth":"","obtained":"","serial":"","ordinal":""}]}
+      { text: `You are an expert Arabic/French document OCR system. Read every page of this exam registration list, including all rows of a table. Return ONLY valid JSON with this exact shape:
+{"examDate":"","belt":"","kyu":null,"candidates":[{"name":"","birth":"","obtained":"","serial":"","ordinal":"","confidence":0,"warnings":[]}]}
 Rules:
-- Preserve Arabic names exactly as visible, without translating them.
-- Extract the official serial number labelled رقم تسلسلي when present. Never invent a serial number.
-- Put the visible row number or order in ordinal only when it is clearly visible; otherwise use an empty string.
+- Preserve Arabic names exactly as visible, without translating, reordering, or transliterating them.
+- Keep right-to-left columns aligned with the correct candidate row.
+- Extract the official diploma number labelled رقم تسلسلي / N° diplôme only when it is visibly present. Never invent a serial number.
+- Put a visible row number or source order in ordinal only when it is clearly printed. Never use ordinal as a replacement for serial.
+- Keep examDate separate from obtained. Do not copy one into the other unless the document explicitly shows they are the same.
 - Use empty strings for unreadable text and null for an unreadable kyu.
-- Use the list's exam date, belt, and grade when visible.
-- Do not invent candidates, dates, serials, belts, or grades.
-- Include every readable candidate row, in the original order.` },
-    ], { responseMimeType: 'application/json' });
+- Use the list's exam date, belt, and grade only when visible in the document.
+- Do not invent candidates, dates, serials, belts, grades, or missing characters.
+- Include every readable candidate row from every page, in original order, without deduplicating.
+- Set confidence from 0 to 1 for each row. Use a lower value when Arabic letters, digits, dates, or row alignment are uncertain.
+- Add short French warning strings such as "Nom incertain", "Numéro illisible", or "Ligne partiellement coupée" when applicable.` },
+    ], { responseMimeType: 'application/json', temperature: 0.05 });
     const extracted = extractJson(text);
     const candidates = Array.isArray(extracted) ? extracted : extracted?.candidates;
     if (!Array.isArray(candidates)) return response.status(422).json({ error: 'Gemini could not identify a candidate list.', raw: text });
@@ -714,6 +718,8 @@ Rules:
           obtained: cleanNullable(candidate?.obtained) || '',
           serial: cleanNullable(candidate?.serial) || '',
           ordinal: cleanNullable(candidate?.ordinal) || '',
+          confidence: Number.isFinite(Number(candidate?.confidence)) ? Math.max(0, Math.min(1, Number(candidate.confidence))) : null,
+          warnings: Array.isArray(candidate?.warnings) ? candidate.warnings.map(warning => cleanNullable(warning)).filter(Boolean).slice(0, 5) : [],
         })),
       },
     });
