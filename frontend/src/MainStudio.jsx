@@ -25,6 +25,7 @@ export default function MainStudio() {
     let active = true;
     (async () => {
       try {
+        window.BudoFabricLoader = window.BudoFabricLoader || (() => import('fabric').then(module => { window.BudoFabric = module; return module; }));
         await loadScript('/vendor/jszip.min.js');
         await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
         await loadScript('/legacy-config.js');

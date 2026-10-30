@@ -39,6 +39,23 @@ create table if not exists public.template_presets (
 );
 
 create index if not exists template_presets_workspace_updated_idx on public.template_presets (workspace_id, updated_at desc);
+create index if not exists template_presets_workspace_belt_updated_idx on public.template_presets (workspace_id, belt, updated_at desc);
+create index if not exists template_presets_config_gin_idx on public.template_presets using gin (config);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'template_presets_config_object_check'
+      and conrelid = 'public.template_presets'::regclass
+  ) then
+    alter table public.template_presets
+      add constraint template_presets_config_object_check
+      check (jsonb_typeof(config) = 'object');
+  end if;
+end;
+$$;
 
 create table if not exists public.template_assets (
   id uuid primary key default gen_random_uuid(),
