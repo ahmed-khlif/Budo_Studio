@@ -528,7 +528,9 @@ app.put('/api/candidates/:id', async (request, response, next) => {
 
 app.delete('/api/candidates/:id', async (request, response, next) => {
   try {
-    if (!(await deleteCandidate(request, request.params.id))) return response.status(404).json({ error: 'Candidate not found.' });
+    // Deletion is intentionally idempotent: a stale browser copy may already
+    // be gone from Supabase, and that should still count as a successful delete.
+    await deleteCandidate(request, request.params.id);
     response.status(204).end();
   } catch (error) {
     next(error);
