@@ -20,6 +20,7 @@ function loadScript(src) {
 }
 
 export default function MainStudio() {
+  // Keep this entry in the deployment diff when root runtime assets change.
   const markup = useMemo(() => ({ __html: bodyMarkup }), []);
 
   useEffect(() => {
