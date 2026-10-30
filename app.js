@@ -46,22 +46,23 @@ const backendPresetFingerprints=new Map();
 const backendCandidateIds=new Set();
 const backendCandidateFingerprints=new Map();
 const backendDeletedCandidateIds=new Set();
-let backendRealtimeChannel=null, backendRealtimeTimer=null, backendRealtimeSuppressUntil=0, backendLoadToken=0, backendCandidateFingerprint='';
+let backendRealtimeChannel=null, backendRealtimeTimer=null, backendRefreshTimer=null, backendRealtimeSuppressUntil=0, backendLoadToken=0, backendCandidateFingerprint='';
 
 function candidateFingerprint(list=state.candidates){return JSON.stringify(list.filter(candidate=>!candidate.demo).map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)})))}
 function candidateRecordFingerprint(candidate){return JSON.stringify({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),status:candidateErrors(candidate).length?'incomplete':'ready'})}
 function templateConfig(beltId,fields=state.layouts[beltId]||[],backgroundUrl=state.templates[beltId]?.remoteUrl||''){return {version:2,belt:beltId,size:{width:W,height:H},fields,backgroundUrl}}
 function templateFingerprint(config={}){return JSON.stringify({version:2,belt:config.belt||'',size:{width:Number(config.size?.width||W),height:Number(config.size?.height||H)},fields:Array.isArray(config.fields)?config.fields:[],backgroundUrl:config.backgroundUrl||''})}
 
-function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=()=>{if(backendSyncBusy||backendDirty||Date.now()<backendRealtimeSuppressUntil)return;clearTimeout(backendRealtimeTimer);backendRealtimeTimer=setTimeout(()=>{if(!backendSyncBusy&&!backendDirty)loadBackendData({checkHealth:false})},900)};backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},refresh).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)})}
+function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=(reason='realtime')=>{if(backendSyncBusy||backendDirty||Date.now()<backendRealtimeSuppressUntil)return;clearTimeout(backendRealtimeTimer);backendRealtimeTimer=setTimeout(()=>{if(!backendSyncBusy&&!backendDirty){debugLog('Automatic refresh', {reason});loadBackendData({checkHealth:false,reason})}},900)};backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},()=>refresh('realtime:candidates')).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},()=>refresh('realtime:presets')).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},()=>refresh('realtime:assets')).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)});window.addEventListener('focus',()=>refresh('window:focus'));if(!backendRefreshTimer)backendRefreshTimer=setInterval(()=>{if(!document.hidden&&!backendSyncBusy&&!backendDirty)refresh('interval')},60000)}
 
 function backendAuthHeaders(){return backendSession?.access_token?{Authorization:`Bearer ${backendSession.access_token}`}:{}}
 async function backendRequest(path,options={}){const headers={...backendAuthHeaders(),...(options.headers||{})};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(`${BACKEND_API}${path}`,{...options,headers});const raw=await response.text();let data={};try{data=raw?JSON.parse(raw):{}}catch{data={error:raw}}if(!response.ok){const error=Error(data.error||`Backend request failed (${response.status})`);error.status=response.status;throw error}return data}
 function backendUi(status,detail='',error=false){const root=$('#backend-tools'),label=$('#backend-status'),small=$('#backend-status-detail');if(label)label.textContent=status;if(small)small.textContent=detail;if(root)root.classList.toggle('error',error),root.classList.toggle('connected',!error&&backendReady);const text=backendSession?'Déconnexion':'Connexion';const login=$('#btn-backend-login'),headerLogin=$('#btn-header-login'),authState=$('#auth-state');if(login)login.textContent=text;if(headerLogin){headerLogin.textContent=text;headerLogin.classList.toggle('logged-in',Boolean(backendSession));}if(authState){authState.textContent=backendSession?.user?.email||'Mode public';authState.classList.toggle('authenticated',Boolean(backendSession));}}
 function showBackendLogin(){openModal(`<div class="modal-head"><div><h2>Connexion BUDO Studio</h2><p>Connectez-vous pour synchroniser les candidats, modèles et services IA.</p></div><button class="modal-x">×</button></div><form id="backend-login-form"><label class="property-label">Email<input id="backend-email" type="email" required autocomplete="email"></label><label class="property-label">Mot de passe<input id="backend-password" type="password" required autocomplete="current-password"></label><div id="backend-login-error" class="modal-alert" hidden></div><div class="modal-footer"><button type="button" class="btn secondary" id="backend-login-cancel">Annuler</button><button class="btn primary" type="submit">Se connecter</button></div></form>`);$('#backend-login-cancel').onclick=closeModal;$('#backend-login-form').onsubmit=async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button[type="submit"]');button.disabled=true;try{const {data,error}=await backendClient.auth.signInWithPassword({email:$('#backend-email').value.trim(),password:$('#backend-password').value});if(error)throw error;backendSession=data.session;closeModal();await loadBackendData();showToast('Connexion réussie — données synchronisées')}catch(error){const node=$('#backend-login-error');node.hidden=false;node.textContent=error.message}finally{button.disabled=false}}}
-async function loadBackendData({checkHealth=true}={}){
+async function loadBackendData({checkHealth=true,reason='initial'}={}){
  const loadToken=++backendLoadToken;
  setupBackendRealtime();
+ debugLog('Backend load started', {reason,authenticated:Boolean(backendSession)});
  try{
   const localCandidates=[...state.candidates];
   const health=checkHealth?await backendRequest('/health'):{schemaReady:true};
@@ -81,6 +82,7 @@ async function loadBackendData({checkHealth=true}={}){
   renderStats();renderCandidates();renderBeltSelectors();renderEditor();renderTemplateList();
   if(!migrateLocal)backendCandidateFingerprint=candidateFingerprint(state.candidates);
   if(migrateLocal)await syncBackend();
+  debugLog('Backend load completed', {reason,candidates:state.candidates.length,presets:presets.length,assets:assets.length,migrateLocal});
  }catch(error){backendReady=false;backendApiReady=false;backendUi('Connexion backend impossible',error.message,true);showToast(error.message,true)}
 }
 async function syncBackend(){
@@ -116,6 +118,7 @@ async function syncBackend(){
   backendRealtimeSuppressUntil=Date.now()+1500;
   backendDirty=false;
   $('#save-state').textContent='Enregistré dans Supabase';
+  debugLog('Backend sync completed', {candidates:state.candidates.length,presets:backendPresetIds.size});
  }catch(error){backendUi('Synchronisation échouée',error.message,true)}finally{backendSyncBusy=false}
 }
 function scheduleBackendSync(){if(!backendReady)return;clearTimeout(backendSyncTimer);backendSyncTimer=setTimeout(()=>syncBackend(),300)}
