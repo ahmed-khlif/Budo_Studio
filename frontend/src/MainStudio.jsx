@@ -26,6 +26,7 @@ export default function MainStudio() {
 
   useEffect(() => {
     let active = true;
+    window.__BUDO_RUNTIME_MARKER = 'classic-editor-gate-v2';
     (async () => {
       try {
         window.BudoFabricLoader = window.BudoFabricLoader || (() => import('fabric').then(module => { window.BudoFabric = module; return module; }));
