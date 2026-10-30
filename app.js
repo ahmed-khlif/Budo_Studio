@@ -1,6 +1,6 @@
 'use strict';
 // BUDO Studio V2 — no backend, no dependency except the locally bundled MIT-licensed JSZip.
-const W=645.75,H=936.75, LS_KEY='budo-studio-v3-settings', LS_CANDIDATES='budo-studio-v3-candidates', LS_SELECTION='budo-studio-v3-selection';
+const W=645.75,H=936.75, LS_KEY='budo-studio-v3-settings', LS_CANDIDATES='budo-studio-v3-candidates', LS_SELECTION='budo-studio-v3-selection', LS_DELETED_CANDIDATES='budo-studio-v3-deleted-candidates';
 const BELTS=[
  {id:'أبيض',swatches:['#f6f7f9'],kyu:null},
  {id:'أبيض وأصفر',swatches:['#ffffff','#f5cc4e'],kyu:null},
@@ -24,6 +24,7 @@ const DEFAULT_FIELDS=[
 const SAMPLE={id:'example',serial:'26361',name:'حمزة الخليلي',birth:'26 جوان 2016',obtained:'30 أوت 2026',belt:'أصفر',kyu:9,origin:'Diplôme original (exemple)',demo:true};
 const MONTHS=['جانفي','فيفري','مارس','أفريل','ماي','جوان','جويلية','أوت','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 const $=sel=>document.querySelector(sel),$$=sel=>[...document.querySelectorAll(sel)];
+const debugLog=(...args)=>{try{if(localStorage.getItem('budo-studio-debug')==='1')console.info('[BUDO]',...args)}catch{}};
 const html=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const deep=x=>JSON.parse(JSON.stringify(x));
 const clamp=(x,lo,hi)=>Math.min(hi,Math.max(lo,x));
@@ -69,7 +70,8 @@ async function loadBackendData({checkHealth=true}={}){
   const [candidateData,presets,assets]=await Promise.all([backendRequest('/candidates?pageSize=4000'),backendRequest('/templates/presets'),backendRequest('/templates/assets')]);
   if(loadToken!==backendLoadToken||backendSyncBusy)return;
   const remoteCandidates=candidateData.data||[];
-  const migrateLocal=!remoteCandidates.length&&localCandidates.some(candidate=>!candidate.demo);
+  const migrateLocal=!remoteCandidates.length&&!presets.length&&!assets.length&&localCandidates.some(candidate=>!candidate.demo);
+  debugLog('Backend load', {remoteCandidates:remoteCandidates.length,localCandidates:localCandidates.length,presets:presets.length,assets:assets.length,migrateLocal});
   state.candidates=migrateLocal?localCandidates:remoteCandidates;
   backendCandidateIds.clear();backendCandidateFingerprints.clear();remoteCandidates.forEach(candidate=>{backendCandidateIds.add(candidate.id);backendCandidateFingerprints.set(candidate.id,candidateRecordFingerprint(candidate));});
   backendPresetIds.clear();backendPresetFingerprints.clear();
@@ -89,7 +91,7 @@ async function syncBackend(){
   const layoutSnapshot=Object.fromEntries(BELTS.map(belt=>[belt.id,deep(state.layouts[belt.id]||[])]));
   const candidateChanged=candidateFingerprint(state.candidates)!==backendCandidateFingerprint;
   if(candidateChanged){
-   state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)}));
+  state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)})).filter(candidate=>!backendDeletedCandidateIds.has(candidate.id));
    for(const candidate of [...state.candidates]){
     if(candidate.demo||backendDeletedCandidateIds.has(candidate.id))continue;
     const payload={...candidate,status:candidateErrors(candidate).length?'incomplete':'ready'};
@@ -123,11 +125,12 @@ function tryLoadSettings(){
   if(beltOf(saved.belt))state.belt=saved.belt;
   state.snap=saved.snap!==false;state.guides=saved.guides!==false;state.grid=Boolean(saved.grid);
  }
- const savedC=JSON.parse(localStorage.getItem(LS_CANDIDATES)||localStorage.getItem('budo-studio-v2-candidates')||'null');if(Array.isArray(savedC))state.candidates=savedC.filter(c=>c&&c.id&&typeof c.name==='string').slice(0,4000);const selected=JSON.parse(localStorage.getItem(LS_SELECTION)||'[]');if(Array.isArray(selected)){const ids=new Set(state.candidates.map(c=>c.id));state.selectedIds=new Set(selected.filter(id=>ids.has(id)));}
+  const deleted=JSON.parse(localStorage.getItem(LS_DELETED_CANDIDATES)||'[]');if(Array.isArray(deleted))deleted.filter(Boolean).forEach(id=>backendDeletedCandidateIds.add(id));
+  const savedC=JSON.parse(localStorage.getItem(LS_CANDIDATES)||localStorage.getItem('budo-studio-v2-candidates')||'null');if(Array.isArray(savedC))state.candidates=savedC.filter(c=>c&&c.id&&typeof c.name==='string'&&!backendDeletedCandidateIds.has(c.id)).slice(0,4000);const selected=JSON.parse(localStorage.getItem(LS_SELECTION)||'[]');if(Array.isArray(selected)){const ids=new Set(state.candidates.map(c=>c.id));state.selectedIds=new Set(selected.filter(id=>ids.has(id)));}
  }catch(err){console.warn('Configuration précédente ignorée :',err)}
 }
 function persist(){backendDirty=true;clearTimeout(saveTimer);$('#save-state').textContent='Enregistrement…';saveTimer=setTimeout(()=>{
- try{localStorage.setItem(LS_KEY,JSON.stringify({layouts:state.layouts,belt:state.belt,snap:state.snap,guides:state.guides,grid:state.grid}));localStorage.setItem(LS_CANDIDATES,JSON.stringify(state.candidates));localStorage.setItem(LS_SELECTION,JSON.stringify([...state.selectedIds]));$('#save-state').textContent='Enregistré sur cet appareil';}catch(e){$('#save-state').textContent='Stockage local saturé';console.warn(e)}
+  try{localStorage.setItem(LS_KEY,JSON.stringify({layouts:state.layouts,belt:state.belt,snap:state.snap,guides:state.guides,grid:state.grid}));localStorage.setItem(LS_CANDIDATES,JSON.stringify(state.candidates));localStorage.setItem(LS_SELECTION,JSON.stringify([...state.selectedIds]));localStorage.setItem(LS_DELETED_CANDIDATES,JSON.stringify([...backendDeletedCandidateIds]));$('#save-state').textContent='Enregistré sur cet appareil';}catch(e){$('#save-state').textContent='Stockage local saturé';console.warn(e)}
  },260);scheduleBackendSync()}
 function showToast(message,error=false){const root=$('#toast-root');root.replaceChildren();const node=document.createElement('div');node.className=`toast${error?' error':''}`;node.innerHTML=`<span>${error?'⚠':'✓'} &nbsp; ${html(message)}</span><button class="close" aria-label="Fermer">×</button>`;root.append(node);node.querySelector('button').onclick=()=>node.remove();setTimeout(()=>node.remove(),5200)}
 function setPage(page){if(!['editor','candidates','templates','overview'].includes(page))return;state.page=page;$$('.tab-view').forEach(v=>v.classList.toggle('hidden',v.id!==`view-${page}`));$$('[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===page));const names={editor:['Éditeur de diplôme','Déplacez directement chaque zone sur le modèle, avec un aperçu fidèle en temps réel.'],candidates:['Gestion des candidats','Importez, contrôlez et corrigez les informations avant impression.'],templates:['Bibliothèque des modèles','Un modèle vierge et une mise en page indépendante pour chaque ceinture.'],overview:['Vue générale','De la liste Excel aux diplômes PDF, directement dans le navigateur.']};$('#page-title').textContent=names[page][0];$('#crumb').textContent=names[page][0];$('#page-subtitle').textContent=names[page][1];if(page==='editor'){renderEditor();setTimeout(fitZoom,60)}if(page==='candidates')renderCandidates();if(page==='templates')renderTemplateList();if(page==='overview')renderStats();}
@@ -350,7 +353,7 @@ async function renderPdfCandidate(candidate,scale=2.7){const template=state.temp
  for(const field of state.layouts[candidate.belt]||[]){if(!field.visible)continue;const text=candidateValue(field,candidate);if(!text)continue;context.save();context.translate(field.x,field.y);context.rotate((field.rotation||0)*Math.PI/180);context.globalAlpha=Number(field.opacity??1);context.fillStyle=field.color||'#000000';context.direction=field.direction==='ltr'?'ltr':'rtl';context.font=`${field.italic?'italic ':''}${field.weight||400} ${field.size||30}px '${fontFamily(field.family)}', 'Amiri', serif`;if('letterSpacing' in context)context.letterSpacing=(field.letterSpacing||0)+'px';context.textAlign=field.align||'center';context.textBaseline='middle';let x=0;if(field.align==='left')x=-field.w/2+4;else if(field.align==='right')x=field.w/2-4;context.fillText(text,x,0,Math.max(1,field.w-8));if(field.underline){const m=context.measureText(text),width=Math.min(m.width,Math.max(1,field.w-8));const start=field.align==='center'?-width/2:field.align==='right'?x-width:x;context.beginPath();context.moveTo(start,field.size*.42);context.lineTo(start+width,field.size*.42);context.lineWidth=Math.max(1,field.size/24);context.strokeStyle=field.color||'#000';context.stroke()}context.restore()}
  const jpeg=canvas.toDataURL('image/jpeg',.94);return {width:canvas.width,height:canvas.height,bytes:jpegBytesFromDataUrl(jpeg)};
 }
-function checkFonts(candidates){const faces=[...document.fonts];const used=new Set(candidates.flatMap(c=>(state.layouts[c.belt]||[]).filter(f=>f.visible).map(f=>f.family)));const missing=[];if(used.has('Mirza')&&!faces.some(f=>f.family.replace(/["']/g,'')==='Mirza'&&f.status==='loaded'))missing.push('Mirza Regular non chargée');if(used.has('MirzaImported')&&!faces.some(f=>f.family==='MirzaImported'&&f.status==='loaded'))missing.push('Police importée manquante (recharger le fichier)');if(used.has('Amiri')&&!faces.some(f=>f.family.replace(/["']/g,'')==='Amiri'&&f.status==='loaded'))missing.push('Amiri indisponible');return missing}
+function checkFonts(candidates){const faces=[...document.fonts];const used=new Set(candidates.flatMap(c=>(state.layouts[c.belt]||[]).filter(f=>f.visible).map(f=>f.family)));const loaded=(family,weight='400')=>document.fonts.check(`${weight} 38px "${fontFamily(family)}"`)||faces.some(f=>f.family.replace(/["']/g,'')===fontFamily(family)&&f.status==='loaded');const missing=[];if(used.has('Mirza')&&!loaded('Mirza'))missing.push('Mirza Regular non chargée');if(used.has('MirzaImported')&&!loaded('MirzaImported'))missing.push('Police importée manquante (recharger le fichier)');if(used.has('Amiri')&&!loaded('Amiri'))missing.push('Amiri indisponible');return missing}
 async function ensureFonts(){try{await Promise.all([document.fonts.load('400 38px Mirza'),document.fonts.load('400 38px Amiri')])}catch{}await document.fonts.ready}
 function exportDialog(){
  const selected=selectedCandidates();const filtered=filteredCandidates();const belt=state.candidates.filter(c=>c.belt===state.belt);
@@ -444,6 +447,7 @@ function bindGlobal(){
   if(confirmBulk&&!await askConfirm(`Supprimer ${unique.length} fiche(s) définitivement ?`))return;
   unique.forEach(id=>backendDeletedCandidateIds.add(id));
    const remoteIds=unique.filter(id=>state.candidates.some(candidate=>candidate.id===id&&!candidate.demo));
+  debugLog('Candidate delete requested', {ids:unique,remoteIds});
   try{
     for(const id of remoteIds){try{await backendRequest(`/candidates/${id}`,{method:'DELETE'})}catch(error){if(error.status!==404)throw error}}
   }catch(error){unique.forEach(id=>{if(state.candidates.some(candidate=>candidate.id===id))backendDeletedCandidateIds.delete(id)});showToast(`Suppression impossible : ${error.message}`,true);return}
@@ -451,6 +455,7 @@ function bindGlobal(){
   state.candidates=state.candidates.filter(candidate=>!unique.includes(candidate.id));
   unique.forEach(id=>state.selectedIds.delete(id));
   persist();renderCandidates();renderStats();showToast(`${unique.length} fiche(s) supprimée(s)`);
+  debugLog('Candidate delete completed', {ids:unique});
  }
  function bindImmediateDeletion(){
   document.addEventListener('click',event=>{
