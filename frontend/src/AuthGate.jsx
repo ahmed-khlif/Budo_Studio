@@ -104,6 +104,9 @@ export default function AuthGate() {
 
   useEffect(() => {
     if (!client) return undefined;
+    // The legacy studio must use the same authenticated client/session as this
+    // gate. Creating a second client can miss the mobile browser session.
+    window.BudoAuthClient = client;
     let mounted = true;
     client.auth.getSession().then(({ data, error }) => {
       if (!mounted) return;
@@ -126,7 +129,7 @@ export default function AuthGate() {
       }
     };
     window.addEventListener('budo:auth-state', handleLegacyAuth);
-    return () => { mounted = false; listener?.subscription?.unsubscribe(); window.removeEventListener('budo:auth-state', handleLegacyAuth); };
+    return () => { mounted = false; listener?.subscription?.unsubscribe(); window.removeEventListener('budo:auth-state', handleLegacyAuth); if (window.BudoAuthClient === client) delete window.BudoAuthClient; };
   }, [client]);
 
   if (status === 'config-error') return <main className="auth-page"><div className="auth-system-message"><strong>Configuration Supabase manquante</strong><p>Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_PUBLISHABLE_KEY dans les variables Vercel, puis redéployez.</p></div></main>;
