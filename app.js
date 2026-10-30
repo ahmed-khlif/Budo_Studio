@@ -58,6 +58,8 @@ const BACKEND_API='/api';
 let backendClient=null, backendSession=null, backendReady=false, backendApiReady=false, backendSyncTimer=null, backendSyncBusy=false, backendDirty=false;
 const backendPresetIds=new Map();
 const backendPresetFingerprints=new Map();
+let backendPreferenceFingerprint='';
+let backendPreferencesAvailable=false;
 const backendCandidateIds=new Set();
 const backendCandidateFingerprints=new Map();
 const backendDeletedCandidateIds=new Set();
@@ -68,6 +70,17 @@ function candidateFingerprint(list=state.candidates){return JSON.stringify(list.
 function candidateRecordFingerprint(candidate){return JSON.stringify({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),status:candidateErrors(candidate).length?'incomplete':'ready'})}
 function templateConfig(beltId,fields=state.layouts[beltId]||[],backgroundUrl=state.templates[beltId]?.remoteUrl||''){return {version:2,belt:beltId,beltMeta:customBeltMetadata(beltId),size:{width:W,height:H},fields,backgroundUrl}}
 function templateFingerprint(config={}){return JSON.stringify({version:2,belt:config.belt||'',beltMeta:config.beltMeta||null,size:{width:Number(config.size?.width||W),height:Number(config.size?.height||H)},fields:Array.isArray(config.fields)?config.fields:[],backgroundUrl:config.backgroundUrl||''})}
+function preferenceConfig(){return {snap:state.snap,guides:state.guides,grid:state.grid,fabricMode:fabricPreferred,customBelts:BELTS.filter(belt=>belt.custom).map(belt=>({id:belt.id,name:belt.id,swatches:[...belt.swatches],kyu:belt.kyu??null}))}}
+function preferenceFingerprint(config=preferenceConfig()){return JSON.stringify(config)}
+function applyRemotePreferences(config={},remoteBelts=[]){
+ const listed=Array.isArray(remoteBelts)?remoteBelts.filter(belt=>belt&&!belt.builtin):[];
+ const configured=Array.isArray(config.customBelts)?config.customBelts:[];
+ for(const belt of [...listed,...configured])registerCustomBelt(belt,{persistLocal:false});
+ if(Object.prototype.hasOwnProperty.call(config,'snap'))state.snap=config.snap!==false;
+ if(Object.prototype.hasOwnProperty.call(config,'guides'))state.guides=config.guides!==false;
+ if(Object.prototype.hasOwnProperty.call(config,'grid'))state.grid=Boolean(config.grid);
+ if(Object.prototype.hasOwnProperty.call(config,'fabricMode'))fabricPreferred=Boolean(config.fabricMode);
+}
 
 function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=(reason='realtime')=>{if(backendSyncBusy||backendDirty||Date.now()<backendRealtimeSuppressUntil)return;clearTimeout(backendRealtimeTimer);backendRealtimeTimer=setTimeout(()=>{if(!backendSyncBusy&&!backendDirty){debugLog('Automatic refresh', {reason});loadBackendData({checkHealth:false,reason})}},900)};backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},()=>refresh('realtime:candidates')).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},()=>refresh('realtime:presets')).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},()=>refresh('realtime:assets')).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)});window.addEventListener('focus',()=>refresh('window:focus'));if(!backendRefreshTimer)backendRefreshTimer=setInterval(()=>{if(!document.hidden&&!backendSyncBusy&&!backendDirty)refresh('interval')},60000)}
 
@@ -86,9 +99,13 @@ async function loadBackendData({checkHealth=true,reason='initial'}={}){
   backendApiReady=true;
   if(!health.schemaReady){backendReady=false;backendUi('Schéma Supabase manquant',health.schemaError||'Exécutez supabase/schema.sql.',true);return}
   const missingServices=[!health.cloudinary?'Cloudinary':'',!health.gemini?'Gemini':''].filter(Boolean);
-  const [candidateData,presets,assets]=await Promise.all([backendRequest('/candidates?pageSize=4000'),backendRequest('/templates/presets'),backendRequest('/templates/assets')]);
+  const preferencesAvailable=health.preferencesReady!==false;
+  backendPreferencesAvailable=preferencesAvailable;
+  const [candidateData,presets,assets,remoteBelts,remotePreferences]=await Promise.all([backendRequest('/candidates?pageSize=4000'),backendRequest('/templates/presets'),backendRequest('/templates/assets'),preferencesAvailable?backendRequest('/belts'):Promise.resolve([]),preferencesAvailable?backendRequest('/preferences'):Promise.resolve({})]);
   if(loadToken!==backendLoadToken||backendSyncBusy)return;
   const remoteCandidates=candidateData.data||[];
+  applyRemotePreferences(remotePreferences||{},remoteBelts||[]);
+  backendPreferenceFingerprint=preferenceFingerprint(remotePreferences||{});
   const migrateLocal=!remoteCandidates.length&&!presets.length&&!assets.length&&localCandidates.some(candidate=>!candidate.demo);
   const remoteCustomIds=new Set(presets.filter(preset=>preset.config?.beltMeta?.id).map(preset=>preset.config.beltMeta.id));
   const migrateLocalTemplates=BELTS.some(belt=>belt.custom&&!remoteCustomIds.has(belt.id));
@@ -130,6 +147,12 @@ async function syncBackend(){
    const currentIds=new Set(state.candidates.filter(candidate=>!candidate.demo).map(candidate=>candidate.id));
    for(const id of [...backendCandidateIds])if(!currentIds.has(id)){await backendRequest(`/candidates/${id}`,{method:'DELETE'});backendCandidateIds.delete(id);backendCandidateFingerprints.delete(id)}
    backendCandidateFingerprint=candidateFingerprint(state.candidates);
+  }
+  const nextPreferences=preferenceConfig();
+  if(backendPreferencesAvailable&&backendPreferenceFingerprint!==preferenceFingerprint(nextPreferences)){
+   await backendRequest('/preferences',{method:'PUT',body:JSON.stringify(nextPreferences)});
+   backendPreferenceFingerprint=preferenceFingerprint(nextPreferences);
+   debugLog('Preferences saved', {customBelts:nextPreferences.customBelts.length});
   }
   for(const belt of BELTS){
    const beltId=belt.id,config=templateConfig(beltId,layoutSnapshot[beltId],state.templates[beltId]?.remoteUrl||''),fingerprint=templateFingerprint(config);
