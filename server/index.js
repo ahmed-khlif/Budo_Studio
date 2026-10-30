@@ -799,6 +799,27 @@ app.delete('/api/templates/assets/:id', async (request, response, next) => {
   }
 });
 
+// Keep remote Cloudinary backgrounds same-origin when they are drawn into the
+// browser canvas for PDF export. Direct remote images may otherwise taint it.
+app.get('/api/media/template', async (request, response, next) => {
+  try {
+    const target = new URL(String(request.query.url || ''));
+    const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+    const allowed = target.protocol === 'https:'
+      && target.hostname === 'res.cloudinary.com'
+      && cloudName
+      && target.pathname.startsWith(`/${cloudName}/`);
+    if (!allowed) return response.status(400).json({ error: 'Only assets from the configured Cloudinary cloud can be proxied.' });
+    const upstream = await fetch(target);
+    if (!upstream.ok) return response.status(upstream.status).end();
+    response.set('Content-Type', upstream.headers.get('content-type') || 'image/png');
+    response.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    response.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/belts', async (request, response, next) => {
   try { response.json(await listBelts(request)); } catch (error) { next(error); }
 });
