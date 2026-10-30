@@ -88,7 +88,7 @@ async function syncBackend(){
   const currentIds=new Set(state.candidates.filter(candidate=>!candidate.demo).map(candidate=>candidate.id));
   for(const id of [...backendCandidateIds])if(!currentIds.has(id)){await backendRequest(`/candidates/${id}`,{method:'DELETE'});backendCandidateIds.delete(id)}
   for(const belt of BELTS){
-   const beltId=belt.id,config={belt:beltId,fields:layoutSnapshot[beltId]||[],backgroundUrl:state.templates[beltId]?.remoteUrl||''};
+   const beltId=belt.id,config={version:2,belt:beltId,size:{width:W,height:H},fields:layoutSnapshot[beltId]||[],backgroundUrl:state.templates[beltId]?.remoteUrl||''};
    const existingId=backendPresetIds.get(beltId);
    const saved=await backendRequest(existingId?`/templates/presets/${existingId}`:'/templates/presets',{method:existingId?'PUT':'POST',body:JSON.stringify({name:`${beltId} certificate template`,belt:beltId,description:'Main BUDO Studio editor configuration',config})});
    backendPresetIds.set(beltId,saved.id);
@@ -404,5 +404,28 @@ function bindGlobal(){
  document.addEventListener('keydown',e=>{const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}else if(e.key==='Escape')closeModal();else nudgeSelected(e)});
  window.addEventListener('resize',()=>{if(state.zoomFitted)fitZoom()});
 }
-async function start(){tryLoadSettings();bindGlobal();bindBackendTools();renderBeltSelectors();renderStats();renderEditor();setPage('editor');await restoreFont();await restoreImages();renderTemplateList();await new Promise(r=>setTimeout(r,130));fitZoom();await initBackend();}
+ async function deleteCandidatesImmediately(ids,confirmBulk=false){
+  const unique=[...new Set(ids)].filter(Boolean);
+  if(!unique.length){showToast('Aucune fiche sélectionnée.',true);return}
+  if(confirmBulk&&!await askConfirm(`Supprimer ${unique.length} fiche(s) définitivement ?`))return;
+  const remoteIds=unique.filter(id=>backendCandidateIds.has(id));
+  try{
+   for(const id of remoteIds)await backendRequest(`/candidates/${id}`,{method:'DELETE'});
+  }catch(error){showToast(`Suppression impossible : ${error.message}`,true);return}
+  remoteIds.forEach(id=>backendCandidateIds.delete(id));
+  state.candidates=state.candidates.filter(candidate=>!unique.includes(candidate.id));
+  unique.forEach(id=>state.selectedIds.delete(id));
+  persist();renderCandidates();renderStats();showToast(`${unique.length} fiche(s) supprimée(s)`);
+ }
+ function bindImmediateDeletion(){
+  document.addEventListener('click',event=>{
+   const single=event.target.closest('[data-delete]');
+   const bulk=event.target.closest('#btn-delete-selected');
+   if(!single&&!bulk)return;
+   event.preventDefault();event.stopImmediatePropagation();
+   if(single)deleteCandidatesImmediately([single.dataset.delete]);
+   else deleteCandidatesImmediately([...state.selectedIds],true);
+  },true);
+ }
+ async function start(){tryLoadSettings();bindGlobal();bindImmediateDeletion();bindBackendTools();renderBeltSelectors();renderStats();renderEditor();setPage('editor');await restoreFont();await restoreImages();renderTemplateList();await new Promise(r=>setTimeout(r,130));fitZoom();await initBackend();}
 start().catch(e=>{console.error('Échec BUDO Studio',e);showToast('Application non initialisée : '+e.message,true)});
