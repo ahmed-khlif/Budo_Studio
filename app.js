@@ -107,17 +107,18 @@ async function syncBackend(){
   for(const belt of BELTS){
    const beltId=belt.id,config=templateConfig(beltId,layoutSnapshot[beltId],state.templates[beltId]?.remoteUrl||''),fingerprint=templateFingerprint(config);
    const existingId=backendPresetIds.get(beltId);
-   if(existingId&&backendPresetFingerprints.get(beltId)===fingerprint)continue;
+   if(existingId&&backendPresetFingerprints.get(beltId)===fingerprint){debugLog('Template unchanged', {belt:beltId});continue}
    const saved=await backendRequest(existingId?`/templates/presets/${existingId}`:'/templates/presets',{method:existingId?'PUT':'POST',body:JSON.stringify({name:`${beltId} certificate template`,belt:beltId,description:'Main BUDO Studio editor configuration',config})});
    backendPresetIds.set(beltId,saved.id);
    backendPresetFingerprints.set(beltId,templateFingerprint(saved.config||config));
+   debugLog('Template saved', {belt:beltId,presetId:saved.id,fieldCount:config.fields.length});
   }
   backendRealtimeSuppressUntil=Date.now()+1500;
   backendDirty=false;
   $('#save-state').textContent='Enregistré dans Supabase';
  }catch(error){backendUi('Synchronisation échouée',error.message,true)}finally{backendSyncBusy=false}
 }
-function scheduleBackendSync(){if(!backendReady)return;clearTimeout(backendSyncTimer);backendSyncTimer=setTimeout(()=>syncBackend(),700)}
+function scheduleBackendSync(){if(!backendReady)return;clearTimeout(backendSyncTimer);backendSyncTimer=setTimeout(()=>syncBackend(),300)}
 async function initBackend(){if(!window.supabase||!window.BUDO_PUBLIC_CONFIG){backendUi('Mode local','Supabase client indisponible',true);return}backendClient=window.supabase.createClient(window.BUDO_PUBLIC_CONFIG.supabaseUrl,window.BUDO_PUBLIC_CONFIG.supabasePublishableKey);const {data}=await backendClient.auth.getSession();backendSession=data.session;await loadBackendData();backendClient.auth.onAuthStateChange((_event,session)=>{if((session?.access_token||'')===(backendSession?.access_token||''))return;backendSession=session;loadBackendData()})}
 function tryLoadSettings(){
  try{const saved=JSON.parse(localStorage.getItem(LS_KEY)||localStorage.getItem('budo-studio-v2-settings')||'null');if(saved?.layouts){

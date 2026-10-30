@@ -16,7 +16,10 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const workspaceDefault = 'default';
-const requireAuth = String(process.env.REQUIRE_AUTH || 'false').toLowerCase() === 'true';
+// Vercel must never silently fall back to the shared "default" workspace.
+// Local development can remain public unless REQUIRE_AUTH=true is configured.
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const requireAuth = String(process.env.REQUIRE_AUTH ?? (isVercel ? 'true' : 'false')).toLowerCase() === 'true';
 const adminEmails = new Set(String(process.env.ADMIN_EMAILS || '')
   .split(',')
   .map((email) => email.trim().toLowerCase())
