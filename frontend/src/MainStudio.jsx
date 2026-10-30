@@ -21,6 +21,7 @@ function loadScript(src) {
 
 export default function MainStudio() {
   // Keep this entry in the deployment diff when root runtime assets change.
+  // The runtime gate also allows the editor to open when optional AI services are offline.
   const markup = useMemo(() => ({ __html: bodyMarkup }), []);
 
   useEffect(() => {
