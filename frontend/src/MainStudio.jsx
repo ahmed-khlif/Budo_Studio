@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import legacyDocument from '../../index.html?raw';
 
 const bodyMarkup = legacyDocument
@@ -26,8 +27,10 @@ export default function MainStudio() {
     (async () => {
       try {
         window.BudoFabricLoader = window.BudoFabricLoader || (() => import('fabric').then(module => { window.BudoFabric = module; return module; }));
+        // Reuse the bundled Supabase client. The old runtime CDN dependency was
+        // unreliable on some mobile networks and left the backend gate stuck.
+        window.supabase = window.supabase || { createClient: createSupabaseClient };
         await loadScript('/vendor/jszip.min.js');
-        await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
         await loadScript('/legacy-config.js');
         if (active) await loadScript('/app.js');
       } catch (error) {
