@@ -149,14 +149,16 @@ function cleanNullable(value) {
 
 function candidateForStorage(candidate) {
   return {
-    ...candidate,
+    name: candidate.name,
+    birth: candidate.birth,
+    obtained: candidate.obtained,
+    serial: candidate.serial,
+    belt: candidate.belt,
     kyu: cleanNullable(candidate.kyu),
-    serial: cleanNullable(candidate.serial),
-    birth: cleanNullable(candidate.birth),
-    obtained: cleanNullable(candidate.obtained),
-    belt: cleanNullable(candidate.belt),
     exam_date: cleanNullable(candidate.examDate),
     ordinal: cleanNullable(candidate.ordinal),
+    origin: candidate.origin || 'Manual',
+    status: candidate.status || 'incomplete',
     source_image_url: candidate.sourceImageUrl || null,
     metadata: candidate.metadata || {},
   };
