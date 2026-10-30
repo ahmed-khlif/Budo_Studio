@@ -50,6 +50,15 @@
   </div>
 </main>
 </div>
+<section id="backend-gate" class="backend-gate" aria-live="polite" aria-busy="true">
+  <div class="backend-gate-card">
+    <span class="backend-gate-icon">⌁</span>
+    <p class="eyebrow">ESPACE SÉCURISÉ</p>
+    <h2 id="backend-gate-status">Connexion aux services…</h2>
+    <p id="backend-gate-detail">Vérification de Supabase, Cloudinary et Gemini.</p>
+    <button id="btn-backend-retry" class="btn primary" type="button" onclick="window.location.reload()">Réessayer la connexion</button>
+  </div>
+</section>
 <input type="file" id="excel-file" accept=".xlsx" multiple hidden>
 <input type="file" id="exam-ocr-file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" hidden>
 <div id="modal-root"></div>
