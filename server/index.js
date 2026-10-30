@@ -426,7 +426,7 @@ app.get('/api/health', async (_request, response) => {
     const checks = await Promise.all([
       supabase.from('candidates').select('id').limit(1),
       supabase.from('template_presets').select('id').limit(1),
-      supabase.from('template_assets').select('id').limit(1),
+      supabase.from('template_assets').select('id,preview_url,resource_type,mime_type').limit(1),
     ]);
     const error = checks.map((result) => result.error).find(Boolean);
     schemaReady = !error;
@@ -595,7 +595,7 @@ app.post('/api/templates/assets', upload.single('file'), async (request, respons
       return response.status(422).json({ error: 'Template proportions are not portrait-compatible with the certificate canvas.' });
     }
     const previewUrl = isPdf
-      ? cloudinary.url(result.public_id, { secure: true, resource_type: result.resource_type || 'image', format: 'png', transformation: [{ page: 1, width: 1292, height: 1874, crop: 'fit' }] })
+      ? cloudinary.url(result.public_id, { secure: true, resource_type: result.resource_type || 'image', format: 'png', transformation: [{ page: 1 }, { width: 1292, height: 1874, crop: 'fit' }] })
       : result.secure_url;
     const asset = {
       id: id(),
@@ -693,7 +693,7 @@ app.use(express.static(frontendDist));
 app.use(express.static(path.resolve(__dirname, '..')));
 
 app.use((error, _request, response, _next) => {
-  const status = Number(error.statusCode || (error.name === 'ZodError' ? 400 : 500));
+  const status = Number(error.statusCode || (error.code === 'LIMIT_FILE_SIZE' ? 413 : error.name === 'MulterError' ? 400 : error.name === 'ZodError' ? 400 : 500));
   const message = error.name === 'ZodError' ? error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ') : error.message;
   console.error(error);
   response.status(status).json({ error: message || 'Unexpected server error.' });

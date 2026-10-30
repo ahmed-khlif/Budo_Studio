@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import MainStudio from './MainStudio';
+import AuthGate from './AuthGate';
 import '../../style.css';
 
-createRoot(document.getElementById('root')).render(<MainStudio />);
+createRoot(document.getElementById('root')).render(<AuthGate />);

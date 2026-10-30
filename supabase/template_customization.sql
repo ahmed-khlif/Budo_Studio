@@ -13,6 +13,16 @@ alter table public.candidates
 create index if not exists candidates_workspace_belt_idx
   on public.candidates (workspace_id, belt);
 
+-- Cloudinary template uploads use these fields for PDF previews and metadata.
+alter table public.template_assets
+  add column if not exists preview_url text;
+
+alter table public.template_assets
+  add column if not exists resource_type text not null default 'image';
+
+alter table public.template_assets
+  add column if not exists mime_type text;
+
 -- The editor keeps its evolving configuration in JSONB so new controls do
 -- not require a database migration. Current config shape:
 -- {
