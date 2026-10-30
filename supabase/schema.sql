@@ -167,3 +167,35 @@ $$;
 -- Add authenticated workspace policies before exposing the Supabase anon key
 -- to production users. The Express API uses the service role server-side;
 -- it does not expose that secret to the React bundle.
+
+-- Account-scoped UI preferences and custom belt definitions used by the
+-- compatibility API. The JSON object remains extensible without new columns.
+create table if not exists public.workspace_preferences (
+  workspace_id text primary key,
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint workspace_preferences_config_object_check check (jsonb_typeof(config) = 'object')
+);
+
+create index if not exists workspace_preferences_updated_idx
+  on public.workspace_preferences (updated_at desc);
+
+grant select, insert, update, delete on public.workspace_preferences to authenticated;
+grant select, insert, update, delete on public.workspace_preferences to service_role;
+
+alter table public.workspace_preferences enable row level security;
+
+drop policy if exists workspace_preferences_owner_select on public.workspace_preferences;
+create policy workspace_preferences_owner_select on public.workspace_preferences for select to authenticated
+using (workspace_id = auth.uid()::text);
+drop policy if exists workspace_preferences_owner_insert on public.workspace_preferences;
+create policy workspace_preferences_owner_insert on public.workspace_preferences for insert to authenticated
+with check (workspace_id = auth.uid()::text);
+drop policy if exists workspace_preferences_owner_update on public.workspace_preferences;
+create policy workspace_preferences_owner_update on public.workspace_preferences for update to authenticated
+using (workspace_id = auth.uid()::text) with check (workspace_id = auth.uid()::text);
+
+drop trigger if exists workspace_preferences_touch_updated_at on public.workspace_preferences;
+create trigger workspace_preferences_touch_updated_at before update on public.workspace_preferences
+for each row execute function public.touch_updated_at();

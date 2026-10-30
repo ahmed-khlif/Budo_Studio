@@ -64,10 +64,20 @@ const presetSchema = z.object({
   previewUrl: z.string().url().nullable().optional(),
 });
 
+const beltSchema = z.object({
+  id: z.string().trim().max(100).optional(),
+  name: z.string().trim().min(1).max(100),
+  swatches: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).min(1).max(2).optional().default(['#6b7f95']),
+  kyu: z.union([z.number().int().positive(), z.string().trim().max(40)]).nullable().optional(),
+});
+
+const preferencesSchema = z.record(z.string(), z.unknown());
+
 const memory = {
   candidates: new Map(),
   presets: new Map(),
   assets: new Map(),
+  preferences: new Map(),
 };
 
 const supabaseServerKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -389,6 +399,58 @@ async function deleteAsset(request, assetId) {
   return true;
 }
 
+const builtinBelts = [
+  { id: 'أبيض', name: 'أبيض', swatches: ['#f6f7f9'], kyu: null, builtin: true },
+  { id: 'أبيض وأصفر', name: 'أبيض وأصفر', swatches: ['#ffffff', '#f5cc4e'], kyu: null, builtin: true },
+  { id: 'أصفر', name: 'أصفر', swatches: ['#f5c94a'], kyu: 9, builtin: true },
+  { id: 'أصفر وبرتقالي', name: 'أصفر وبرتقالي', swatches: ['#f5c94a', '#ee9b4e'], kyu: null, builtin: true },
+  { id: 'برتقالي', name: 'برتقالي', swatches: ['#ed9850'], kyu: null, builtin: true },
+  { id: 'برتقالي وأخضر', name: 'برتقالي وأخضر', swatches: ['#ed9850', '#50a46d'], kyu: null, builtin: true },
+  { id: 'أخضر', name: 'أخضر', swatches: ['#4fa46c'], kyu: null, builtin: true },
+  { id: 'أخضر وأزرق', name: 'أخضر وأزرق', swatches: ['#4fa46c', '#2f7ebd'], kyu: null, builtin: true },
+  { id: 'أزرق', name: 'أزرق', swatches: ['#2c7abb'], kyu: null, builtin: true },
+  { id: 'أزرق وبني', name: 'أزرق وبني', swatches: ['#2c7abb', '#9b6c42'], kyu: null, builtin: true },
+  { id: 'بني', name: 'بني', swatches: ['#986b45'], kyu: null, builtin: true },
+];
+
+async function readPreferences(request) {
+  const workspaceId = await workspaceOf(request);
+  if (!supabase) return { workspaceId, config: memory.preferences.get(workspaceId) || {} };
+  const { data, error } = await supabase.from('workspace_preferences').select('config').eq('workspace_id', workspaceId).maybeSingle();
+  if (error && ['PGRST205', '42P01'].includes(error.code)) return { workspaceId, config: {}, available: false };
+  if (error) throw error;
+  return { workspaceId, config: data?.config && typeof data.config === 'object' ? data.config : {} };
+}
+
+async function writePreferences(request, config) {
+  const parsed = preferencesSchema.parse(config);
+  const { workspaceId, available = true } = await readPreferences(request);
+  if (!available) throw authError('Run supabase/template_customization.sql to enable account preferences and custom belts.', 503);
+  if (!supabase) {
+    memory.preferences.set(workspaceId, parsed);
+    return parsed;
+  }
+  const { data, error } = await supabase.from('workspace_preferences').upsert({ workspace_id: workspaceId, config: parsed }, { onConflict: 'workspace_id' }).select('config').single();
+  if (error) throw error;
+  return data?.config || parsed;
+}
+
+async function listBelts(request) {
+  const { config } = await readPreferences(request);
+  const custom = Array.isArray(config.customBelts) ? config.customBelts : [];
+  return [...builtinBelts, ...custom.filter(belt => belt && belt.name && !builtinBelts.some(item => item.id === belt.id || item.name === belt.name)).map(belt => ({ ...belt, builtin: false }))];
+}
+
+async function saveBelt(request, body) {
+  const belt = beltSchema.parse(body);
+  const { config } = await readPreferences(request);
+  const customBelts = Array.isArray(config.customBelts) ? config.customBelts.filter(item => item && item.name) : [];
+  const normalized = { id: belt.id || belt.name, name: belt.name, swatches: belt.swatches, kyu: belt.kyu ?? null, builtin: false };
+  const next = [...customBelts.filter(item => item.id !== normalized.id && item.name !== normalized.name), normalized];
+  await writePreferences(request, { ...config, customBelts: next });
+  return normalized;
+}
+
 function uploadToCloudinary(file, folder) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -397,6 +459,57 @@ function uploadToCloudinary(file, folder) {
     );
     stream.end(file.buffer);
   });
+}
+
+async function createTemplateAsset(request) {
+  if (!request.file) throw authError('Attach an image or PDF as the file field.', 400);
+  if (!hasCloudinary) throw authError('Cloudinary is not configured. Add the three CLOUDINARY_* values to .env.', 503);
+  const belt = String(request.body.belt || '').trim();
+  const result = await uploadToCloudinary(request.file, `budo-studio/templates/${belt || 'unassigned'}`);
+  const isPdf = request.file.mimetype === 'application/pdf';
+  const ratio = Number(result.width || 0) / Number(result.height || 1);
+  const expectedRatio = 645.75 / 936.75;
+  if (!isPdf && (!Number.isFinite(ratio) || Math.abs(ratio - expectedRatio) > 0.09)) {
+    await cloudinary.uploader.destroy(result.public_id, { resource_type: 'image' }).catch(() => {});
+    throw authError('Template proportions are not portrait-compatible with the certificate canvas.', 422);
+  }
+  const previewUrl = isPdf
+    ? cloudinary.url(result.public_id, { secure: true, resource_type: result.resource_type || 'image', format: 'png', transformation: [{ page: 1 }, { width: 1292, height: 1874, crop: 'fit' }] })
+    : result.secure_url;
+  const asset = {
+    id: id(),
+    workspace_id: await workspaceOf(request),
+    belt,
+    name: String(request.body.name || request.file.originalname).trim(),
+    url: result.secure_url,
+    previewUrl,
+    public_id: result.public_id,
+    resourceType: result.resource_type || 'image',
+    mimeType: request.file.mimetype,
+    width: result.width,
+    height: result.height,
+    created_at: now(),
+  };
+  if (supabase) {
+    const { data, error } = await supabase.from('template_assets').insert({
+      id: asset.id,
+      workspace_id: asset.workspace_id,
+      belt: asset.belt || null,
+      name: asset.name,
+      cloudinary_url: asset.url,
+      cloudinary_public_id: asset.public_id,
+      preview_url: asset.previewUrl,
+      resource_type: asset.resourceType,
+      mime_type: asset.mimeType,
+      width: asset.width,
+      height: asset.height,
+      created_at: asset.created_at,
+    }).select('*').single();
+    if (error) throw error;
+    return { ...asset, ...data, url: data.cloudinary_url, previewUrl: data.preview_url || asset.previewUrl, public_id: data.cloudinary_public_id };
+  }
+  memory.assets.set(asset.id, asset);
+  return asset;
 }
 
 function extractJson(text) {
@@ -422,6 +535,7 @@ async function generateText(contents, config = {}) {
 app.get('/api/health', async (_request, response) => {
   let schemaReady = !supabase;
   let schemaError = null;
+  let preferencesReady = !supabase;
   if (supabase) {
     const checks = await Promise.all([
       supabase.from('candidates').select('id').limit(1),
@@ -429,6 +543,8 @@ app.get('/api/health', async (_request, response) => {
       supabase.from('template_assets').select('id,preview_url,resource_type,mime_type').limit(1),
     ]);
     const error = checks.map((result) => result.error).find(Boolean);
+    const preferencesCheck = await supabase.from('workspace_preferences').select('workspace_id').limit(1);
+    preferencesReady = !preferencesCheck.error;
     schemaReady = !error;
     schemaError = error?.code === 'PGRST205' ? 'Run supabase/schema.sql in the connected project.' : (error?.message || null);
   }
@@ -441,6 +557,7 @@ app.get('/api/health', async (_request, response) => {
     authRequired: requireAuth,
     cloudinary: hasCloudinary,
     gemini: hasGemini,
+    preferencesReady,
     clientSideExports: true,
   });
 });
@@ -529,6 +646,50 @@ app.put('/api/candidates/:id', async (request, response, next) => {
   }
 });
 
+// PATCH is the public API spelling; keep PUT for the legacy editor.
+app.patch('/api/candidates/:id', async (request, response, next) => {
+  try {
+    const existing = await getCandidate(request, request.params.id);
+    if (!existing) return response.status(404).json({ error: 'Candidate not found.' });
+    response.json(await saveCandidate(request, request.params.id, { ...existing, ...request.body }, true));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/candidates/bulk', async (request, response, next) => {
+  try {
+    const items = Array.isArray(request.body) ? request.body : request.body?.candidates;
+    if (!Array.isArray(items) || !items.length) return response.status(400).json({ error: 'Provide a non-empty candidates array.' });
+    if (items.length > 4000) return response.status(413).json({ error: 'A bulk request cannot contain more than 4000 candidates.' });
+    items.forEach(item => candidateSchema.parse(item));
+    const data = [];
+    for (const item of items) data.push(await saveCandidate(request, null, item));
+    response.status(201).json({ data, count: data.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/candidates/bulk-update', async (request, response, next) => {
+  try {
+    const items = Array.isArray(request.body) ? request.body : request.body?.candidates;
+    if (!Array.isArray(items) || !items.length) return response.status(400).json({ error: 'Provide candidates with ids to update.' });
+    if (items.length > 4000) return response.status(413).json({ error: 'A bulk request cannot contain more than 4000 candidates.' });
+    const data = [];
+    for (const item of items) {
+      const candidateId = String(item?.id || '').trim();
+      if (!candidateId) throw authError('Every bulk update item needs an id.', 400);
+      const existing = await getCandidate(request, candidateId);
+      if (!existing) throw authError(`Candidate not found: ${candidateId}`, 404);
+      data.push(await saveCandidate(request, candidateId, { ...existing, ...item }, true));
+    }
+    response.json({ data, count: data.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete('/api/candidates/:id', async (request, response, next) => {
   try {
     // Deletion is intentionally idempotent: a stale browser copy may already
@@ -573,6 +734,38 @@ app.delete('/api/templates/presets/:id', async (request, response, next) => {
   }
 });
 
+// Public API aliases. The editor keeps using /templates/presets for backwards compatibility.
+app.get('/api/templates', async (request, response, next) => {
+  try { response.json(await listPresets(request)); } catch (error) { next(error); }
+});
+
+app.post('/api/templates', async (request, response, next) => {
+  try { response.status(201).json(await savePreset(request, null, request.body)); } catch (error) { next(error); }
+});
+
+app.patch('/api/templates/:id', async (request, response, next) => {
+  try { response.json(await savePreset(request, request.params.id, request.body)); } catch (error) { next(error); }
+});
+
+app.get('/api/presets', async (request, response, next) => {
+  try { response.json(await listPresets(request)); } catch (error) { next(error); }
+});
+
+app.post('/api/presets', async (request, response, next) => {
+  try { response.status(201).json(await savePreset(request, null, request.body)); } catch (error) { next(error); }
+});
+
+app.patch('/api/presets/:id', async (request, response, next) => {
+  try { response.json(await savePreset(request, request.params.id, request.body)); } catch (error) { next(error); }
+});
+
+app.delete('/api/presets/:id', async (request, response, next) => {
+  try {
+    if (!(await deletePreset(request, request.params.id))) return response.status(404).json({ error: 'Preset not found.' });
+    response.status(204).end();
+  } catch (error) { next(error); }
+});
+
 app.get('/api/templates/assets', async (request, response, next) => {
   try {
     response.json(await listAssets(request));
@@ -583,55 +776,15 @@ app.get('/api/templates/assets', async (request, response, next) => {
 
 app.post('/api/templates/assets', upload.single('file'), async (request, response, next) => {
   try {
-    if (!request.file) return response.status(400).json({ error: 'Attach an image or PDF as the file field.' });
-    if (!hasCloudinary) return response.status(503).json({ error: 'Cloudinary is not configured. Add the three CLOUDINARY_* values to .env.' });
-    const belt = String(request.body.belt || '').trim();
-    const result = await uploadToCloudinary(request.file, `budo-studio/templates/${belt || 'unassigned'}`);
-    const isPdf = request.file.mimetype === 'application/pdf';
-    const ratio = Number(result.width || 0) / Number(result.height || 1);
-    const expectedRatio = 645.75 / 936.75;
-    if (!isPdf && (!Number.isFinite(ratio) || Math.abs(ratio - expectedRatio) > 0.09)) {
-      await cloudinary.uploader.destroy(result.public_id, { resource_type: 'image' }).catch(() => {});
-      return response.status(422).json({ error: 'Template proportions are not portrait-compatible with the certificate canvas.' });
-    }
-    const previewUrl = isPdf
-      ? cloudinary.url(result.public_id, { secure: true, resource_type: result.resource_type || 'image', format: 'png', transformation: [{ page: 1 }, { width: 1292, height: 1874, crop: 'fit' }] })
-      : result.secure_url;
-    const asset = {
-      id: id(),
-      workspace_id: await workspaceOf(request),
-      belt,
-      name: String(request.body.name || request.file.originalname).trim(),
-      url: result.secure_url,
-      previewUrl,
-      public_id: result.public_id,
-      resourceType: result.resource_type || 'image',
-      mimeType: request.file.mimetype,
-      width: result.width,
-      height: result.height,
-      created_at: now(),
-    };
-    if (supabase) {
-      const { data, error } = await supabase.from('template_assets').insert({
-        id: asset.id,
-        workspace_id: asset.workspace_id,
-        belt: asset.belt || null,
-        name: asset.name,
-        cloudinary_url: asset.url,
-        cloudinary_public_id: asset.public_id,
-        preview_url: asset.previewUrl,
-        resource_type: asset.resourceType,
-        mime_type: asset.mimeType,
-        width: asset.width,
-        height: asset.height,
-        created_at: asset.created_at,
-      }).select('*').single();
-      if (error) throw error;
-      response.status(201).json({ ...asset, ...data, url: data.cloudinary_url, previewUrl: data.preview_url || asset.previewUrl, public_id: data.cloudinary_public_id });
-      return;
-    }
-    memory.assets.set(asset.id, asset);
-    response.status(201).json(asset);
+    response.status(201).json(await createTemplateAsset(request));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/assets/template', upload.single('file'), async (request, response, next) => {
+  try {
+    response.status(201).json(await createTemplateAsset(request));
   } catch (error) {
     next(error);
   }
@@ -644,6 +797,29 @@ app.delete('/api/templates/assets/:id', async (request, response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.get('/api/belts', async (request, response, next) => {
+  try { response.json(await listBelts(request)); } catch (error) { next(error); }
+});
+
+app.post('/api/belts', async (request, response, next) => {
+  try { response.status(201).json(await saveBelt(request, request.body)); } catch (error) { next(error); }
+});
+
+app.get('/api/preferences', async (request, response, next) => {
+  try {
+    const preferences = await readPreferences(request);
+    if (preferences.available === false) throw authError('Run supabase/template_customization.sql to enable account preferences and custom belts.', 503);
+    response.json(preferences.config);
+  } catch (error) { next(error); }
+});
+
+app.put('/api/preferences', async (request, response, next) => {
+  try {
+    const config = request.body?.preferences && typeof request.body.preferences === 'object' ? request.body.preferences : request.body;
+    response.json(await writePreferences(request, config || {}));
+  } catch (error) { next(error); }
 });
 
 app.post('/api/ai/brainstorm', async (request, response, next) => {
@@ -664,6 +840,26 @@ app.post('/api/ai/brainstorm', async (request, response, next) => {
 });
 
 app.post('/api/ai/extract-candidate', upload.single('file'), async (request, response, next) => {
+  try {
+    if (!request.file) return response.status(400).json({ error: 'Attach the candidate image as the file field.' });
+    const workspaceId = await workspaceOf(request);
+    const sourceImageUrl = hasCloudinary
+      ? (await uploadToCloudinary(request.file, `budo-studio/candidate-source/${workspaceId}`)).secure_url
+      : null;
+    const text = await generateText([
+      { inlineData: { mimeType: request.file.mimetype, data: request.file.buffer.toString('base64') } },
+      { text: 'Extract the candidate information visible in this image. Return only JSON with these keys: name, birth, obtained, serial, belt, kyu, examDate, ordinal, origin. Use empty strings or null when unreadable. Never invent missing values.' },
+    ], { responseMimeType: 'application/json' });
+    const extracted = extractJson(text);
+    if (!extracted) return response.status(422).json({ error: 'Gemini returned unreadable data.', raw: text });
+    response.json({ needsReview: true, candidate: { ...extracted, sourceImageUrl }, sourceImageUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Short API alias for clients that expose the generic "extract" action.
+app.post('/api/ai/extract', upload.single('file'), async (request, response, next) => {
   try {
     if (!request.file) return response.status(400).json({ error: 'Attach the candidate image as the file field.' });
     const workspaceId = await workspaceOf(request);

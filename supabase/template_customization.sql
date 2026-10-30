@@ -98,3 +98,42 @@ create policy template_presets_owner_delete on public.template_presets
 
 -- Refresh PostgREST's schema cache after the migration.
 notify pgrst, 'reload schema';
+
+-- API contract support: account-scoped appearance preferences and custom belts.
+create table if not exists public.workspace_preferences (
+  workspace_id text primary key,
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint workspace_preferences_config_object_check check (jsonb_typeof(config) = 'object')
+);
+
+create index if not exists workspace_preferences_updated_idx
+  on public.workspace_preferences (updated_at desc);
+
+grant select, insert, update, delete on public.workspace_preferences to authenticated;
+grant select, insert, update, delete on public.workspace_preferences to service_role;
+
+alter table public.workspace_preferences enable row level security;
+
+drop policy if exists workspace_preferences_owner_select on public.workspace_preferences;
+create policy workspace_preferences_owner_select on public.workspace_preferences
+  for select to authenticated
+  using (workspace_id = auth.uid()::text);
+
+drop policy if exists workspace_preferences_owner_insert on public.workspace_preferences;
+create policy workspace_preferences_owner_insert on public.workspace_preferences
+  for insert to authenticated
+  with check (workspace_id = auth.uid()::text);
+
+drop policy if exists workspace_preferences_owner_update on public.workspace_preferences;
+create policy workspace_preferences_owner_update on public.workspace_preferences
+  for update to authenticated
+  using (workspace_id = auth.uid()::text)
+  with check (workspace_id = auth.uid()::text);
+
+drop trigger if exists workspace_preferences_touch_updated_at on public.workspace_preferences;
+create trigger workspace_preferences_touch_updated_at before update on public.workspace_preferences
+for each row execute function public.touch_updated_at();
+
+notify pgrst, 'reload schema';
