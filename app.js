@@ -39,18 +39,19 @@ const fontFamily=name=>({Mirza:'Mirza',MirzaImported:'MirzaImported',Amiri:'Amir
 const state={page:'editor',belt:'أصفر',layouts:Object.fromEntries(BELTS.map(b=>[b.id,deep(DEFAULT_FIELDS)])),selected:'name',candidates:[],templates:{'أصفر':{name:'Diplôme jaune officiel',src:'assets/yellow-blank.png',builtin:true}},zoom:.7,zoomFitted:true,grid:false,guides:true,snap:true,previewId:'example',fontUploaded:false,undo:[],redo:[],importDraft:null,filterBelt:'all',filterStatus:'all',search:'',candidateSort:'import',pageSize:20,currentPage:1,selectedIds:new Set(),processing:false};
 let pointerAction=null, stageObserver=null, saveTimer=null;
 const BACKEND_API='/api';
-let backendClient=null, backendSession=null, backendReady=false, backendApiReady=false, backendSyncTimer=null, backendSyncBusy=false;
+let backendClient=null, backendSession=null, backendReady=false, backendApiReady=false, backendSyncTimer=null, backendSyncBusy=false, backendDirty=false;
 const backendPresetIds=new Map();
 const backendCandidateIds=new Set();
-let backendRealtimeChannel=null;
+let backendRealtimeChannel=null, backendLoadToken=0;
 
-function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=()=>loadBackendData();backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},refresh).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)})}
+function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=()=>{if(!backendSyncBusy&&!backendDirty)loadBackendData();};backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},refresh).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)})}
 
 function backendAuthHeaders(){return backendSession?.access_token?{Authorization:`Bearer ${backendSession.access_token}`}:{}}
 async function backendRequest(path,options={}){const headers={...backendAuthHeaders(),...(options.headers||{})};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(`${BACKEND_API}${path}`,{...options,headers});const raw=await response.text();let data={};try{data=raw?JSON.parse(raw):{}}catch{data={error:raw}}if(!response.ok)throw Error(data.error||`Backend request failed (${response.status})`);return data}
 function backendUi(status,detail='',error=false){const root=$('#backend-tools'),label=$('#backend-status'),small=$('#backend-status-detail');if(label)label.textContent=status;if(small)small.textContent=detail;if(root)root.classList.toggle('error',error),root.classList.toggle('connected',!error&&backendReady);const text=backendSession?'Déconnexion':'Connexion';const login=$('#btn-backend-login'),headerLogin=$('#btn-header-login'),authState=$('#auth-state');if(login)login.textContent=text;if(headerLogin){headerLogin.textContent=text;headerLogin.classList.toggle('logged-in',Boolean(backendSession));}if(authState){authState.textContent=backendSession?.user?.email||'Mode public';authState.classList.toggle('authenticated',Boolean(backendSession));}}
 function showBackendLogin(){openModal(`<div class="modal-head"><div><h2>Connexion BUDO Studio</h2><p>Connectez-vous pour synchroniser les candidats, modèles et services IA.</p></div><button class="modal-x">×</button></div><form id="backend-login-form"><label class="property-label">Email<input id="backend-email" type="email" required autocomplete="email"></label><label class="property-label">Mot de passe<input id="backend-password" type="password" required autocomplete="current-password"></label><div id="backend-login-error" class="modal-alert" hidden></div><div class="modal-footer"><button type="button" class="btn secondary" id="backend-login-cancel">Annuler</button><button class="btn primary" type="submit">Se connecter</button></div></form>`);$('#backend-login-cancel').onclick=closeModal;$('#backend-login-form').onsubmit=async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button[type="submit"]');button.disabled=true;try{const {data,error}=await backendClient.auth.signInWithPassword({email:$('#backend-email').value.trim(),password:$('#backend-password').value});if(error)throw error;backendSession=data.session;closeModal();await loadBackendData();showToast('Connexion réussie — données synchronisées')}catch(error){const node=$('#backend-login-error');node.hidden=false;node.textContent=error.message}finally{button.disabled=false}}}
 async function loadBackendData(){
+ const loadToken=++backendLoadToken;
  setupBackendRealtime();
  try{
   const localCandidates=[...state.candidates];
@@ -58,6 +59,7 @@ async function loadBackendData(){
   backendApiReady=true;
   if(!health.schemaReady){backendReady=false;backendUi('Schéma Supabase manquant',health.schemaError||'Exécutez supabase/schema.sql.',true);return}
   const [candidateData,presets,assets]=await Promise.all([backendRequest('/candidates?pageSize=4000'),backendRequest('/templates/presets'),backendRequest('/templates/assets')]);
+  if(loadToken!==backendLoadToken||backendSyncBusy)return;
   const remoteCandidates=candidateData.data||[];
   const migrateLocal=!remoteCandidates.length&&localCandidates.some(candidate=>!candidate.demo);
   state.candidates=migrateLocal?localCandidates:remoteCandidates;
@@ -72,8 +74,10 @@ async function loadBackendData(){
 }
 async function syncBackend(){
  if(!backendReady||backendSyncBusy)return;
+ backendLoadToken++;
  backendSyncBusy=true;
  try{
+  const layoutSnapshot=Object.fromEntries(BELTS.map(belt=>[belt.id,deep(state.layouts[belt.id]||[])]));
   state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)}));
   for(const candidate of [...state.candidates]){
    if(candidate.demo)continue;
@@ -84,11 +88,12 @@ async function syncBackend(){
   const currentIds=new Set(state.candidates.filter(candidate=>!candidate.demo).map(candidate=>candidate.id));
   for(const id of [...backendCandidateIds])if(!currentIds.has(id)){await backendRequest(`/candidates/${id}`,{method:'DELETE'});backendCandidateIds.delete(id)}
   for(const belt of BELTS){
-   const beltId=belt.id,config={belt:beltId,fields:state.layouts[beltId]||[],backgroundUrl:state.templates[beltId]?.remoteUrl||''};
+   const beltId=belt.id,config={belt:beltId,fields:layoutSnapshot[beltId]||[],backgroundUrl:state.templates[beltId]?.remoteUrl||''};
    const existingId=backendPresetIds.get(beltId);
    const saved=await backendRequest(existingId?`/templates/presets/${existingId}`:'/templates/presets',{method:existingId?'PUT':'POST',body:JSON.stringify({name:`${beltId} certificate template`,belt:beltId,description:'Main BUDO Studio editor configuration',config})});
    backendPresetIds.set(beltId,saved.id);
   }
+  backendDirty=false;
   $('#save-state').textContent='Enregistré dans Supabase';
  }catch(error){backendUi('Synchronisation échouée',error.message,true)}finally{backendSyncBusy=false}
 }
@@ -103,7 +108,7 @@ function tryLoadSettings(){
  const savedC=JSON.parse(localStorage.getItem(LS_CANDIDATES)||localStorage.getItem('budo-studio-v2-candidates')||'null');if(Array.isArray(savedC))state.candidates=savedC.filter(c=>c&&c.id&&typeof c.name==='string').slice(0,4000);const selected=JSON.parse(localStorage.getItem(LS_SELECTION)||'[]');if(Array.isArray(selected)){const ids=new Set(state.candidates.map(c=>c.id));state.selectedIds=new Set(selected.filter(id=>ids.has(id)));}
  }catch(err){console.warn('Configuration précédente ignorée :',err)}
 }
-function persist(){clearTimeout(saveTimer);$('#save-state').textContent='Enregistrement…';saveTimer=setTimeout(()=>{
+function persist(){backendDirty=true;clearTimeout(saveTimer);$('#save-state').textContent='Enregistrement…';saveTimer=setTimeout(()=>{
  try{localStorage.setItem(LS_KEY,JSON.stringify({layouts:state.layouts,belt:state.belt,snap:state.snap,guides:state.guides,grid:state.grid}));localStorage.setItem(LS_CANDIDATES,JSON.stringify(state.candidates));localStorage.setItem(LS_SELECTION,JSON.stringify([...state.selectedIds]));$('#save-state').textContent='Enregistré sur cet appareil';}catch(e){$('#save-state').textContent='Stockage local saturé';console.warn(e)}
  },260);scheduleBackendSync()}
 function showToast(message,error=false){const root=$('#toast-root');root.replaceChildren();const node=document.createElement('div');node.className=`toast${error?' error':''}`;node.innerHTML=`<span>${error?'⚠':'✓'} &nbsp; ${html(message)}</span><button class="close" aria-label="Fermer">×</button>`;root.append(node);node.querySelector('button').onclick=()=>node.remove();setTimeout(()=>node.remove(),5200)}
