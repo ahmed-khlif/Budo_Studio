@@ -85,7 +85,7 @@ async function loadBackendData({checkHealth=true,reason='initial'}={}){
   const health=checkHealth?await backendRequest('/health'):{schemaReady:true};
   backendApiReady=true;
   if(!health.schemaReady){backendReady=false;backendUi('Schéma Supabase manquant',health.schemaError||'Exécutez supabase/schema.sql.',true);return}
-  const missingServices=[!health.cloudinary?'Cloudinary':'',!health.gemini?'Gemini':''].filter(Boolean);if(missingServices.length){backendReady=false;backendApiReady=false;backendUi('Services requis indisponibles',`Configurez : ${missingServices.join(' · ')}`,true);return}
+  const missingServices=[!health.cloudinary?'Cloudinary':'',!health.gemini?'Gemini':''].filter(Boolean);
   const [candidateData,presets,assets]=await Promise.all([backendRequest('/candidates?pageSize=4000'),backendRequest('/templates/presets'),backendRequest('/templates/assets')]);
   if(loadToken!==backendLoadToken||backendSyncBusy)return;
   const remoteCandidates=candidateData.data||[];
@@ -103,7 +103,7 @@ async function loadBackendData({checkHealth=true,reason='initial'}={}){
    if(preset.belt&&Array.isArray(preset.config?.fields))state.layouts[preset.belt]=preset.config.fields.map(field=>({...deep(DEFAULT_FIELDS[0]),...field}));
   }
   for(const asset of assets){if(asset.belt)state.templates[asset.belt]={name:asset.name,src:asset.previewUrl||asset.url,remoteUrl:asset.url,cloudinary:true};}
-  backendReady=true;backendUi('Services connectés','Supabase · Cloudinary · Gemini');
+  backendReady=true;backendUi(missingServices.length?'Studio connecté':'Services connectés',missingServices.length?`Fonctions optionnelles indisponibles : ${missingServices.join(' · ')}`:'Supabase · Cloudinary · Gemini');
   renderStats();renderCandidates();renderBeltSelectors();renderEditor();renderTemplateList();
   if(!migrateLocal)backendCandidateFingerprint=candidateFingerprint(state.candidates);
   if(migrateLocal||migrateLocalTemplates)await syncBackend();
