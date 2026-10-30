@@ -682,13 +682,13 @@ app.post('/api/ai/extract-candidate', upload.single('file'), async (request, res
   }
 });
 
-// Keep one user-facing product: the original full BUDO Studio app at `/`.
-// React renders the original BUDO Studio interface at the main route.
+// Keep one user-facing product: the React-authenticated BUDO Studio at `/`.
+// Never expose the legacy HTML shell directly: it does not mount AuthGate.
 app.use('/workspace', (_request, response) => response.redirect(302, '/'));
+app.get(['/legacy', '/index.html'], (_request, response) => response.redirect(302, '/'));
 app.get('/', (_request, response) => response.sendFile(path.join(frontendDist, 'index.html'), (error) => {
-  if (error) response.sendFile(path.resolve(__dirname, '..', 'index.html'));
+  if (error) response.status(503).send('BUDO Studio frontend is not built. Run npm run build:full.');
 }));
-app.get('/legacy', (_request, response) => response.sendFile(path.resolve(__dirname, '..', 'index.html')));
 app.use(express.static(frontendDist));
 app.use(express.static(path.resolve(__dirname, '..')));
 
