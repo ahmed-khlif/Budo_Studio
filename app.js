@@ -62,7 +62,7 @@ const backendCandidateIds=new Set();
 const backendCandidateFingerprints=new Map();
 const backendDeletedCandidateIds=new Set();
 let backendRealtimeChannel=null, backendRealtimeTimer=null, backendRefreshTimer=null, backendRealtimeSuppressUntil=0, backendLoadToken=0, backendCandidateFingerprint='';
-let fabricCanvas=null, fabricHost=null, fabricMode=false, fabricPreferred=true, fabricHistoryArmed=false;
+let fabricCanvas=null, fabricHost=null, fabricMode=false, fabricPreferred=false, fabricHistoryArmed=false;
 
 function candidateFingerprint(list=state.candidates){return JSON.stringify(list.filter(candidate=>!candidate.demo).map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)})))}
 function candidateRecordFingerprint(candidate){return JSON.stringify({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),status:candidateErrors(candidate).length?'incomplete':'ready'})}
@@ -152,7 +152,7 @@ function tryLoadSettings(){
  try{const saved=JSON.parse(localStorage.getItem(LS_KEY)||localStorage.getItem('budo-studio-v2-settings')||'null');const customBelts=JSON.parse(localStorage.getItem(LS_CUSTOM_BELTS)||JSON.stringify(saved?.customBelts||[]));if(Array.isArray(customBelts))customBelts.forEach(belt=>registerCustomBelt(belt,{persistLocal:false}));if(saved?.layouts){
   for(const belt of BELTS)if(Array.isArray(saved.layouts[belt.id]))state.layouts[belt.id]=saved.layouts[belt.id].filter(f=>f&&f.id).map(f=>({...deep(DEFAULT_FIELDS.find(x=>x.id===f.id)||DEFAULT_FIELDS[0]),...f}));
   if(beltOf(saved.belt))state.belt=saved.belt;
-  state.snap=saved.snap!==false;state.guides=saved.guides!==false;state.grid=Boolean(saved.grid);fabricPreferred=saved.fabricMode!==false;
+  state.snap=saved.snap!==false;state.guides=saved.guides!==false;state.grid=Boolean(saved.grid);fabricPreferred=false;
  }
   const deleted=JSON.parse(localStorage.getItem(LS_DELETED_CANDIDATES)||'[]');if(Array.isArray(deleted))deleted.filter(Boolean).forEach(id=>backendDeletedCandidateIds.add(id));
   const savedC=JSON.parse(localStorage.getItem(LS_CANDIDATES)||localStorage.getItem('budo-studio-v2-candidates')||'null');if(Array.isArray(savedC))state.candidates=savedC.filter(c=>c&&c.id&&typeof c.name==='string'&&!backendDeletedCandidateIds.has(c.id)).slice(0,4000);const selected=JSON.parse(localStorage.getItem(LS_SELECTION)||'[]');if(Array.isArray(selected)){const ids=new Set(state.candidates.map(c=>c.id));state.selectedIds=new Set(selected.filter(id=>ids.has(id)));}
