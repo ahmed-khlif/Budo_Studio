@@ -93,6 +93,17 @@ const hasCloudinary = Boolean(
     process.env.CLOUDINARY_API_KEY &&
     process.env.CLOUDINARY_API_SECRET,
 );
+const PDF_PREVIEW_WIDTH = 1938;
+const PDF_PREVIEW_HEIGHT = 2811;
+function cloudinaryPdfPreview(publicId, resourceType = 'image') {
+  if (!hasCloudinary || !publicId) return '';
+  return cloudinary.url(publicId, {
+    secure: true,
+    resource_type: resourceType || 'image',
+    format: 'png',
+    transformation: [{ page: 1 }, { width: PDF_PREVIEW_WIDTH, height: PDF_PREVIEW_HEIGHT, crop: 'fit' }],
+  });
+}
 if (hasCloudinary) {
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -346,13 +357,15 @@ async function deletePreset(request, presetId) {
 }
 
 function assetFromStorage(row) {
+  const publicId = row.cloudinary_public_id || row.public_id || '';
+  const isPdf = (row.mime_type || row.mimeType) === 'application/pdf' || /\.pdf$/i.test(row.name || '');
   return {
     id: row.id,
     belt: row.belt || '',
     name: row.name || '',
     url: row.cloudinary_url || row.url || '',
-    previewUrl: row.preview_url || row.previewUrl || row.cloudinary_url || row.url || '',
-    public_id: row.cloudinary_public_id || row.public_id || '',
+    previewUrl: isPdf && publicId ? cloudinaryPdfPreview(publicId, row.resource_type || row.resourceType || 'image') : row.preview_url || row.previewUrl || row.cloudinary_url || row.url || '',
+    public_id: publicId,
     resourceType: row.resource_type || row.resourceType || 'image',
     mimeType: row.mime_type || row.mimeType || null,
     width: row.width || null,
@@ -474,7 +487,7 @@ async function createTemplateAsset(request) {
     throw authError('Template proportions are not portrait-compatible with the certificate canvas.', 422);
   }
   const previewUrl = isPdf
-    ? cloudinary.url(result.public_id, { secure: true, resource_type: result.resource_type || 'image', format: 'png', transformation: [{ page: 1 }, { width: 1292, height: 1874, crop: 'fit' }] })
+    ? cloudinaryPdfPreview(result.public_id, result.resource_type || 'image')
     : result.secure_url;
   const asset = {
     id: id(),
