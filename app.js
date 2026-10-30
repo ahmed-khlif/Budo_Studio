@@ -42,6 +42,7 @@ const BACKEND_API='/api';
 let backendClient=null, backendSession=null, backendReady=false, backendApiReady=false, backendSyncTimer=null, backendSyncBusy=false, backendDirty=false;
 const backendPresetIds=new Map();
 const backendCandidateIds=new Set();
+const backendDeletedCandidateIds=new Set();
 let backendRealtimeChannel=null, backendLoadToken=0;
 
 function setupBackendRealtime(){if(!backendClient||backendRealtimeChannel)return;const refresh=()=>{if(!backendSyncBusy&&!backendDirty)loadBackendData();};backendRealtimeChannel=backendClient.channel('budo-main-realtime').on('postgres_changes',{event:'*',schema:'public',table:'candidates'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_presets'},refresh).on('postgres_changes',{event:'*',schema:'public',table:'template_assets'},refresh).subscribe(status=>{if(status==='CHANNEL_ERROR')backendUi('Realtime indisponible','Vérifiez la publication Supabase',true)})}
@@ -80,10 +81,10 @@ async function syncBackend(){
   const layoutSnapshot=Object.fromEntries(BELTS.map(belt=>[belt.id,deep(state.layouts[belt.id]||[])]));
   state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)}));
   for(const candidate of [...state.candidates]){
-   if(candidate.demo)continue;
+   if(candidate.demo||backendDeletedCandidateIds.has(candidate.id))continue;
    const payload={...candidate,status:candidateErrors(candidate).length?'incomplete':'ready'};
    if(backendCandidateIds.has(candidate.id))await backendRequest(`/candidates/${candidate.id}`,{method:'PUT',body:JSON.stringify(payload)});
-   else{const saved=await backendRequest('/candidates',{method:'POST',body:JSON.stringify(payload)});const index=state.candidates.findIndex(item=>item.id===candidate.id);if(index>=0){state.candidates[index]={...state.candidates[index],id:saved.id};state.selectedIds.delete(candidate.id);if(state.selectedIds.has(saved.id))state.selectedIds.add(saved.id);backendCandidateIds.add(saved.id)}}
+   else{const saved=await backendRequest('/candidates',{method:'POST',body:JSON.stringify(payload)});if(backendDeletedCandidateIds.has(candidate.id)){await backendRequest(`/candidates/${saved.id}`,{method:'DELETE'});continue}const index=state.candidates.findIndex(item=>item.id===candidate.id);if(index>=0){state.candidates[index]={...state.candidates[index],id:saved.id};state.selectedIds.delete(candidate.id);if(state.selectedIds.has(saved.id))state.selectedIds.add(saved.id)}backendCandidateIds.add(saved.id)}
   }
   const currentIds=new Set(state.candidates.filter(candidate=>!candidate.demo).map(candidate=>candidate.id));
   for(const id of [...backendCandidateIds])if(!currentIds.has(id)){await backendRequest(`/candidates/${id}`,{method:'DELETE'});backendCandidateIds.delete(id)}
@@ -404,14 +405,31 @@ function bindGlobal(){
  document.addEventListener('keydown',e=>{const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}else if(e.key==='Escape')closeModal();else nudgeSelected(e)});
  window.addEventListener('resize',()=>{if(state.zoomFitted)fitZoom()});
 }
+ function createTemplateDialog(){
+  openModal(`<div class="modal-head"><div><h2>Créer un modèle</h2><p>Choisissez une ceinture, donnez un nom au modèle et commencez avec une mise en page vierge ou copiée.</p></div><button class="modal-x">×</button></div><div class="candidate-edit"><label>Ceinture<select id="new-template-belt">${beltOptionHtml(state.belt)}</select></label><label>Nom du modèle<input id="new-template-name" value="Modèle personnalisé" maxlength="160"></label><label class="wide">Copier la mise en page de<select id="new-template-copy"><option value="blank">Mise en page vierge</option>${BELTS.filter(b=>b.id!==state.belt).map(b=>`<option value="${html(b.id)}" ${b.id==='أصفر'?'selected':''}>${html(b.id)}</option>`).join('')}</select></label></div><div class="modal-alert">Après création, utilisez « ＋ Nouvelle zone » ou double-cliquez sur l’aperçu pour ajouter autant de champs que nécessaire.</div><div class="modal-footer"><button class="btn secondary" id="new-template-cancel">Annuler</button><button class="btn primary" id="new-template-create">Créer et éditer</button></div>`);
+  $('#new-template-cancel').onclick=closeModal;
+  $('#new-template-create').onclick=()=>{
+   const belt=$('#new-template-belt').value,source=$('#new-template-copy').value;
+   state.layouts[belt]=source==='blank'?deep(DEFAULT_FIELDS):deep(state.layouts[source]||DEFAULT_FIELDS);
+   if(state.templates[belt])state.templates[belt]={...state.templates[belt],name:$('#new-template-name').value.trim()||'Modèle personnalisé'};
+   state.belt=belt;state.selected=getLayout()[0]?.id||null;state.previewId=state.candidates.find(c=>c.belt===belt)?.id||'example';
+   persist();closeModal();setPage('editor');showToast(`Modèle ${belt} créé — ajoutez et placez vos zones`);
+  };
+ }
+ function bindTemplateCreation(){
+  const heading=$('#view-templates .row-heading');
+  if(!heading||$('#btn-create-template'))return;
+  const button=document.createElement('button');button.id='btn-create-template';button.className='btn primary small';button.textContent='＋ Créer un modèle';button.onclick=createTemplateDialog;heading.append(button);
+ }
  async function deleteCandidatesImmediately(ids,confirmBulk=false){
   const unique=[...new Set(ids)].filter(Boolean);
   if(!unique.length){showToast('Aucune fiche sélectionnée.',true);return}
   if(confirmBulk&&!await askConfirm(`Supprimer ${unique.length} fiche(s) définitivement ?`))return;
+  unique.forEach(id=>backendDeletedCandidateIds.add(id));
   const remoteIds=unique.filter(id=>backendCandidateIds.has(id));
   try{
    for(const id of remoteIds)await backendRequest(`/candidates/${id}`,{method:'DELETE'});
-  }catch(error){showToast(`Suppression impossible : ${error.message}`,true);return}
+  }catch(error){unique.forEach(id=>{if(state.candidates.some(candidate=>candidate.id===id))backendDeletedCandidateIds.delete(id)});showToast(`Suppression impossible : ${error.message}`,true);return}
   remoteIds.forEach(id=>backendCandidateIds.delete(id));
   state.candidates=state.candidates.filter(candidate=>!unique.includes(candidate.id));
   unique.forEach(id=>state.selectedIds.delete(id));
@@ -427,5 +445,5 @@ function bindGlobal(){
    else deleteCandidatesImmediately([...state.selectedIds],true);
   },true);
  }
- async function start(){tryLoadSettings();bindGlobal();bindImmediateDeletion();bindBackendTools();renderBeltSelectors();renderStats();renderEditor();setPage('editor');await restoreFont();await restoreImages();renderTemplateList();await new Promise(r=>setTimeout(r,130));fitZoom();await initBackend();}
+ async function start(){tryLoadSettings();bindGlobal();bindImmediateDeletion();bindTemplateCreation();bindBackendTools();renderBeltSelectors();renderStats();renderEditor();setPage('editor');await restoreFont();await restoreImages();renderTemplateList();await new Promise(r=>setTimeout(r,130));fitZoom();await initBackend();}
 start().catch(e=>{console.error('Échec BUDO Studio',e);showToast('Application non initialisée : '+e.message,true)});
