@@ -1,3 +1,12 @@
+.sheet #certificate-bg {
+  object-fit: contain;
+  background: #fff;
+}
+
+.preview-bottom #btn-page-size {
+  min-height: 40px;
+}
+
 @media (max-width: 760px) {
   .table-scroll {
     margin-inline: 0;

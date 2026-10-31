@@ -27,6 +27,15 @@ export default function MainStudio({ authClient }) {
   useEffect(() => {
     let active = true;
     window.__BUDO_RUNTIME_MARKER = 'classic-editor-gate-v2';
+    window.BudoPdfLoader = window.BudoPdfLoader || (async () => {
+      const [pdfjs, worker] = await Promise.all([
+        import('pdfjs-dist/build/pdf.min.mjs'),
+        import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+      ]);
+      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+      window.BudoPdfJs = pdfjs;
+      return pdfjs;
+    });
     if (authClient) window.BudoAuthClient = authClient;
     (async () => {
       try {
