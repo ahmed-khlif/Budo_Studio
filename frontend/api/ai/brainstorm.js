@@ -1,8 +1,8 @@
 // Explicit Vercel entry point for Gemini brainstorming.
-const app = require('../../../server/index.js');
+import app from '../../../server/index.js';
 
-module.exports = (request, response) => {
+export default function handler(request, response) {
   const query = String(request.url || '').split('?').slice(1).join('?');
   request.url = `/api/ai/brainstorm${query ? `?${query}` : ''}`;
   return app(request, response);
-};
+}

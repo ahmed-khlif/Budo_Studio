@@ -1,0 +1,190 @@
+@media (max-width: 760px) {
+  .table-scroll {
+    margin-inline: 0;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .table-scroll table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-collapse: separate;
+  }
+
+  .table-scroll thead {
+    display: none;
+  }
+
+  .table-scroll tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .table-scroll tbody tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px 14px;
+    padding: 48px 13px 14px;
+    border: 1px solid #e4e9ef;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 3px #172b4508;
+  }
+
+  .table-scroll tbody td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    color: #334960;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .table-scroll tbody td::before {
+    display: block;
+    margin-bottom: 4px;
+    color: #8592a3;
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .045em;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .table-scroll tbody .cell-select {
+    position: absolute;
+    inset: 12px auto auto 13px;
+    display: flex;
+    align-items: center;
+    min-height: 24px;
+  }
+
+  .table-scroll tbody .cell-select::before {
+    display: none;
+  }
+
+  .table-scroll tbody .cell-status,
+  .table-scroll tbody .cell-serial {
+    align-self: center;
+  }
+
+  .table-scroll tbody .cell-serial {
+    text-align: right;
+  }
+
+  .table-scroll tbody .cell-name,
+  .table-scroll tbody .cell-belt,
+  .table-scroll tbody .cell-actions,
+  .table-scroll tbody .blank-table {
+    grid-column: 1 / -1;
+  }
+
+  .table-scroll tbody .cell-name {
+    padding-top: 10px;
+    border-top: 1px solid #edf0f4;
+  }
+
+  .table-scroll tbody .cell-name .arabic {
+    display: block;
+    color: #183b5c;
+    font-size: 19px;
+    line-height: 1.45;
+  }
+
+  .table-scroll tbody .cell-name .sub {
+    display: block;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+    font-size: 10px;
+  }
+
+  .table-scroll tbody .cell-belt {
+    padding-top: 9px;
+    border-top: 1px solid #edf0f4;
+  }
+
+  .table-scroll tbody .cell-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 9px;
+    border-top: 1px solid #edf0f4;
+  }
+
+  .table-scroll tbody .cell-actions::before {
+    margin: auto auto auto 0;
+  }
+
+  .table-scroll tbody .table-actions {
+    gap: 8px;
+  }
+
+  .table-scroll tbody .mini-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  .table-scroll tbody .blank-table {
+    padding: 22px 14px;
+    border: 1px dashed #d9e0e8;
+    border-radius: 12px;
+    text-align: center;
+  }
+
+  #template-list {
+    display: grid;
+    gap: 9px;
+  }
+
+  .template-row {
+    display: grid;
+    grid-template-columns: 26px 32px minmax(0, 1fr);
+    grid-template-areas:
+      "index belt name"
+      "status status tag"
+      "import edit delete";
+    align-items: center;
+    gap: 11px 9px;
+    padding: 13px;
+    border: 1px solid #e4e9ef;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .template-index { grid-area: index; }
+  .template-row > .belt-mini { grid-area: belt; }
+  .template-name { grid-area: name; min-width: 0; }
+  .template-name b { display: block; font-size: 17px; line-height: 1.4; }
+  .template-name small { display: block; overflow-wrap: anywhere; font-size: 10px; }
+  .template-row > .status { grid-area: status; justify-self: start; }
+  .template-row > .tag { grid-area: tag; justify-self: end; max-width: 100%; text-align: center; }
+  .template-row > [data-model-belt] { grid-area: import; }
+  .template-row > [data-edit-belt] { grid-area: edit; }
+  .template-row > [data-delete-belt] { grid-area: delete; }
+  .template-row > .btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 7px 5px;
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .selection-toolbar > .selection-tally {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 380px) {
+  .table-scroll tbody tr { gap: 10px; padding-inline: 10px; }
+  .template-row { grid-template-columns: 22px 28px minmax(0, 1fr); gap: 9px 7px; padding: 10px; }
+  .template-row > .btn { font-size: 9px; }
+}

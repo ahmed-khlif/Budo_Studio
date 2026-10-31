@@ -4,6 +4,8 @@ require('dotenv').config();
 
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -42,6 +44,7 @@ const upload = multer({
 });
 
 const candidateSchema = z.object({
+  clientId: z.string().max(120).optional(),
   name: z.string().trim().min(1).max(160),
   birth: z.string().trim().max(80).optional().default(''),
   obtained: z.string().trim().max(80).optional().default(''),
@@ -227,7 +230,9 @@ async function listCandidates(request) {
   const belt = String(request.query.belt || '').trim();
   const status = String(request.query.status || '').trim();
   const page = Math.max(1, Number(request.query.page || 1));
-  const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize || 25)));
+  // Keep API pages large enough for the studio to fetch every candidate in a
+  // few requests. The browser still paginates the visible table independently.
+  const pageSize = Math.min(1000, Math.max(1, Number(request.query.pageSize || 100)));
 
   if (!supabase) {
     let rows = [...memory.candidates.values()].filter((row) => row.workspace_id === workspaceId);
@@ -480,12 +485,6 @@ async function createTemplateAsset(request) {
   const belt = String(request.body.belt || '').trim();
   const result = await uploadToCloudinary(request.file, `budo-studio/templates/${belt || 'unassigned'}`);
   const isPdf = request.file.mimetype === 'application/pdf';
-  const ratio = Number(result.width || 0) / Number(result.height || 1);
-  const expectedRatio = 645.75 / 936.75;
-  if (!isPdf && (!Number.isFinite(ratio) || Math.abs(ratio - expectedRatio) > 0.09)) {
-    await cloudinary.uploader.destroy(result.public_id, { resource_type: 'image' }).catch(() => {});
-    throw authError('Template proportions are not portrait-compatible with the certificate canvas.', 422);
-  }
   const previewUrl = isPdf
     ? cloudinaryPdfPreview(result.public_id, result.resource_type || 'image')
     : result.secure_url;
@@ -675,9 +674,23 @@ app.post('/api/candidates/bulk', async (request, response, next) => {
     const items = Array.isArray(request.body) ? request.body : request.body?.candidates;
     if (!Array.isArray(items) || !items.length) return response.status(400).json({ error: 'Provide a non-empty candidates array.' });
     if (items.length > 4000) return response.status(413).json({ error: 'A bulk request cannot contain more than 4000 candidates.' });
-    items.forEach(item => candidateSchema.parse(item));
-    const data = [];
-    for (const item of items) data.push(await saveCandidate(request, null, item));
+    const parsedItems = items.map(item => candidateSchema.parse(item));
+    const workspaceId = await workspaceOf(request);
+    const timestamp = now();
+    const records = parsedItems.map(item => ({
+      ...candidateForStorage(item), id: id(), workspace_id: workspaceId,
+      created_at: timestamp, updated_at: timestamp,
+    }));
+    let rows;
+    if (!supabase) {
+      rows = records.map(record => { memory.candidates.set(record.id, record); return record; });
+    } else {
+      const { data, error } = await supabase.from('candidates').insert(records).select('*');
+      if (error) throw error;
+      rows = data || [];
+    }
+    const byId = new Map(rows.map(row => [row.id, candidateFromStorage(row)]));
+    const data = records.map((record, index) => ({ ...byId.get(record.id), clientId: parsedItems[index].clientId || null }));
     response.status(201).json({ data, count: data.length });
   } catch (error) {
     next(error);
@@ -689,15 +702,59 @@ app.post('/api/candidates/bulk-update', async (request, response, next) => {
     const items = Array.isArray(request.body) ? request.body : request.body?.candidates;
     if (!Array.isArray(items) || !items.length) return response.status(400).json({ error: 'Provide candidates with ids to update.' });
     if (items.length > 4000) return response.status(413).json({ error: 'A bulk request cannot contain more than 4000 candidates.' });
-    const data = [];
-    for (const item of items) {
-      const candidateId = String(item?.id || '').trim();
-      if (!candidateId) throw authError('Every bulk update item needs an id.', 400);
-      const existing = await getCandidate(request, candidateId);
-      if (!existing) throw authError(`Candidate not found: ${candidateId}`, 404);
-      data.push(await saveCandidate(request, candidateId, { ...existing, ...item }, true));
+    const ids = items.map(item => String(item?.id || '').trim());
+    if (ids.some(candidateId => !candidateId)) throw authError('Every bulk update item needs an id.', 400);
+    if (new Set(ids).size !== ids.length) throw authError('Bulk update contains duplicate ids.', 400);
+    const workspaceId = await workspaceOf(request);
+    if (!supabase) {
+      const data = [];
+      for (const item of items) {
+        const existing = await getCandidate(request, String(item.id));
+        if (!existing) throw authError(`Candidate not found: ${item.id}`, 404);
+        data.push(await saveCandidate(request, String(item.id), { ...existing, ...item }, true));
+      }
+      return response.json({ data, count: data.length });
     }
+    const { data: existingRows, error: lookupError } = await supabase.from('candidates').select('*').eq('workspace_id', workspaceId).in('id', ids);
+    if (lookupError) throw lookupError;
+    const existingById = new Map((existingRows || []).map(row => [row.id, row]));
+    if (existingById.size !== ids.length) throw authError('One or more candidates were not found in this workspace.', 404);
+    const timestamp = now();
+    const records = items.map(item => {
+      const candidateId = String(item.id);
+      const parsed = candidateSchema.parse({ ...candidateFromStorage(existingById.get(candidateId)), ...item });
+      return { ...candidateForStorage(parsed), id: candidateId, workspace_id: workspaceId, created_at: existingById.get(candidateId).created_at, updated_at: timestamp };
+    });
+    const { data: rows, error } = await supabase.from('candidates').upsert(records, { onConflict: 'id' }).select('*');
+    if (error) throw error;
+    const byId = new Map((rows || []).map(row => [row.id, candidateFromStorage(row)]));
+    const data = ids.map(candidateId => byId.get(candidateId));
     response.json({ data, count: data.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/candidates/bulk-delete', async (request, response, next) => {
+  try {
+    const ids = request.body?.ids;
+    if (!Array.isArray(ids) || !ids.length) return response.status(400).json({ error: 'Provide a non-empty ids array.' });
+    if (ids.length > 4000) return response.status(413).json({ error: 'A bulk delete cannot contain more than 4000 ids.' });
+    const uniqueIds = [...new Set(ids.map(value => String(value || '').trim()).filter(Boolean))];
+    const workspaceId = await workspaceOf(request);
+    if (!supabase) {
+      const deleted = uniqueIds.filter(candidateId => {
+        const row = memory.candidates.get(candidateId);
+        if (!row || row.workspace_id !== workspaceId) return false;
+        memory.candidates.delete(candidateId);
+        return true;
+      });
+      return response.json({ deleted, count: deleted.length });
+    }
+    const { data, error } = await supabase.from('candidates').delete().eq('workspace_id', workspaceId).in('id', uniqueIds).select('id');
+    if (error) throw error;
+    const deleted = (data || []).map(row => row.id);
+    response.json({ deleted, count: deleted.length });
   } catch (error) {
     next(error);
   }
@@ -827,7 +884,15 @@ app.get('/api/media/template', async (request, response, next) => {
     if (!upstream.ok) return response.status(upstream.status).end();
     response.set('Content-Type', upstream.headers.get('content-type') || 'image/png');
     response.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
-    response.send(Buffer.from(await upstream.arrayBuffer()));
+    const contentLength = upstream.headers.get('content-length');
+    if (contentLength) response.set('Content-Length', contentLength);
+    if (!upstream.body) return response.end();
+    try {
+      await pipeline(Readable.fromWeb(upstream.body), response);
+    } catch (error) {
+      if (response.headersSent) response.destroy(error);
+      else next(error);
+    }
   } catch (error) {
     next(error);
   }

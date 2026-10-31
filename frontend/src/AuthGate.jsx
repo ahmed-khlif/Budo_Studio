@@ -147,5 +147,5 @@ export default function AuthGate() {
   if (status === 'error') return <main className="auth-page"><div className="auth-system-message"><strong>Connexion Supabase impossible</strong><p>Rechargez la page et vérifiez la configuration du projet.</p><button className="auth-submit" onClick={() => window.location.reload()}>Réessayer</button></div></main>;
   if (status === 'checking') return <main className="auth-page"><div className="auth-loading"><span className="auth-spinner" /><strong>Vérification de votre session…</strong><small>BUDO Studio</small></div></main>;
   if (!session) return <LoginPage client={client} onAuthenticated={(nextSession) => { setSession(nextSession); setStatus('authenticated'); window.location.hash = '#/studio'; }} />;
-  return <MainStudio />;
+  return <MainStudio authClient={client} />;
 }
