@@ -131,19 +131,28 @@ async function loadBackendData({checkHealth=true,reason='initial'}={}){
    const localMigrationDone=remotePreferences?.localDataMigrated===true||workspaceStorageGet(LS_LOCAL_MIGRATION)==='1';
    const migrateLocal=!remoteCandidates.length&&!localMigrationDone&&localCandidates.some(candidate=>!candidate.demo);
   const remoteCustomIds=new Set(presets.filter(preset=>preset.config?.beltMeta?.id).map(preset=>preset.config.beltMeta.id));
+  // The API sends newest versions first; don't let an older layout overwrite it.
+  const latestPresets=new Map();
+  for(const preset of presets)if(preset.belt&&!latestPresets.has(preset.belt))latestPresets.set(preset.belt,preset);
+  const activePresets=[...latestPresets.values()];
+  debugLog('Latest saved template layouts selected',activePresets.map(preset=>({belt:preset.belt,updatedAt:preset.updatedAt})));
   const migrateLocalTemplates=BELTS.some(belt=>belt.custom&&!remoteCustomIds.has(belt.id));
-  debugLog('Backend load', {remoteCandidates:remoteCandidates.length,localCandidates:localCandidates.length,presets:presets.length,assets:assets.length,migrateLocal,migrateLocalTemplates});
+  debugLog('Backend load', {workspaceMode:health.workspaceMode||'unknown',remoteCandidates:remoteCandidates.length,localCandidates:localCandidates.length,presets:presets.length,assets:assets.length,migrateLocal,migrateLocalTemplates});
   state.candidates=migrateLocal?localCandidates:remoteCandidates;
   backendCandidateIds.clear();backendCandidateFingerprints.clear();remoteCandidates.forEach(candidate=>{backendCandidateIds.add(candidate.id);backendCandidateFingerprints.set(candidate.id,candidateRecordFingerprint(candidate));});
   backendPresetIds.clear();backendPresetFingerprints.clear();
-  for(const preset of presets){
+  for(const preset of activePresets){
    const meta=preset.config?.beltMeta;
    if(meta?.id)registerCustomBelt(meta,{persistLocal:false});
    if(preset.belt){backendPresetIds.set(preset.belt,preset.id);backendPresetFingerprints.set(preset.belt,templateFingerprint(preset.config||{}));}
     if(preset.belt&&preset.config?.size)setTemplatePageSize(preset.belt,preset.config.size,{rescale:false});
     if(preset.belt&&Array.isArray(preset.config?.fields))state.layouts[preset.belt]=preset.config.fields.map(field=>({...deep(DEFAULT_FIELDS[0]),...field}));
   }
-   for(const asset of assets){if(asset.belt){const savedConfig=presets.find(preset=>preset.belt===asset.belt)?.config,hasExplicitPageSize=Number(savedConfig?.version)>=3&&savedConfig?.size;if(!hasExplicitPageSize&&asset.width&&asset.height)setTemplatePageSize(asset.belt,imagePageSize(asset.width,asset.height),{rescale:true});state.templates[asset.belt]={name:asset.name,src:asset.previewUrl||asset.url,remoteUrl:asset.url,cloudinary:true}}}
+   const latestAssets=new Map();
+   // Assets also arrive newest-first; keep the most recently uploaded file per belt.
+   for(const asset of assets)if(asset.belt&&!latestAssets.has(asset.belt))latestAssets.set(asset.belt,asset);
+   debugLog('Latest uploaded template backgrounds selected',[...latestAssets.values()].map(asset=>({belt:asset.belt,name:asset.name,createdAt:asset.createdAt})));
+   for(const asset of latestAssets.values()){const savedConfig=activePresets.find(preset=>preset.belt===asset.belt)?.config,hasExplicitPageSize=Number(savedConfig?.version)>=3&&savedConfig?.size;if(!hasExplicitPageSize&&asset.width&&asset.height)setTemplatePageSize(asset.belt,imagePageSize(asset.width,asset.height),{rescale:true});state.templates[asset.belt]={name:asset.name,src:asset.previewUrl||asset.url,remoteUrl:asset.url,cloudinary:true}}
   backendReady=true;backendUi(missingServices.length?'Studio connecté':'Services connectés',missingServices.length?`Fonctions optionnelles indisponibles : ${missingServices.join(' · ')}`:'Supabase · Cloudinary · Gemini');
   renderStats();renderCandidates();renderBeltSelectors();renderEditor();renderTemplateList();
   if(!migrateLocal)backendCandidateFingerprint=candidateFingerprint(state.candidates);

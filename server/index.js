@@ -18,9 +18,13 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const workspaceDefault = 'default';
-// Vercel must never silently fall back to the shared "default" workspace.
-// Local development can remain public unless REQUIRE_AUTH=true is configured.
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+// When configured, signed-in accounts collaborate in one workspace. Keep
+// this aligned with supabase/shared_workspace.sql. Production uses the shared
+// workspace by default; local development stays account-scoped unless opted in.
+const sharedWorkspaceId = String(process.env.BUDO_WORKSPACE_ID || (isVercel ? 'budo-studio-shared' : '')).trim().slice(0, 100);
+// Vercel still requires authentication; its shared workspace is distinct from
+// the unauthenticated local-development default.
 const requireAuth = String(process.env.REQUIRE_AUTH ?? (isVercel ? 'true' : 'false')).toLowerCase() === 'true';
 const adminEmails = new Set(String(process.env.ADMIN_EMAILS || '')
   .split(',')
@@ -160,7 +164,7 @@ async function workspaceOf(request) {
   const requested = String(request.header('x-workspace-id') || '').trim().slice(0, 100);
   const user = await authenticatedUser(request);
   if (!user) return requested || workspaceDefault;
-  const userWorkspace = String(user.app_metadata?.workspace_id || user.id).trim();
+  const userWorkspace = sharedWorkspaceId || String(user.app_metadata?.workspace_id || user.id).trim();
   if (requested && requested !== 'default' && requested !== userWorkspace) throw authError('You do not have access to this workspace.', 403);
   return requested && requested !== 'default' ? requested : userWorkspace;
 }
@@ -308,10 +312,10 @@ async function listPresets(request) {
   if (!supabase) {
     return [...memory.presets.values()]
       .filter((row) => row.workspace_id === workspaceId)
-      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)) || String(b.id).localeCompare(String(a.id)))
       .map(presetFromStorage);
   }
-  const { data, error } = await supabase.from('template_presets').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false });
+  const { data, error } = await supabase.from('template_presets').select('*').eq('workspace_id', workspaceId).order('updated_at', { ascending: false }).order('id', { ascending: false });
   if (error) throw error;
   return (data || []).map(presetFromStorage);
 }
@@ -384,10 +388,10 @@ async function listAssets(request) {
   if (!supabase) {
     return [...memory.assets.values()]
       .filter((row) => row.workspace_id === workspaceId)
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
       .map(assetFromStorage);
   }
-  const { data, error } = await supabase.from('template_assets').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('template_assets').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).order('id', { ascending: false });
   if (error) throw error;
   return (data || []).map(assetFromStorage);
 }
@@ -567,6 +571,7 @@ app.get('/api/health', async (_request, response) => {
     schemaReady,
     schemaError,
     authRequired: requireAuth,
+    workspaceMode: sharedWorkspaceId ? 'shared' : 'account',
     cloudinary: hasCloudinary,
     gemini: hasGemini,
     preferencesReady,
