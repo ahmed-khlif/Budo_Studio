@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b1730"><title>BUDO Studio — Certificate Studio V3</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Amiri:wght@400;700&family=Mirza:wght@400;500&display=swap" rel="stylesheet"><link rel="stylesheet" href="style.css"></head>
 <body>
+<a class="skip-link" href="#main-content">Aller au contenu principal</a>
 <div id="app">
 <aside class="sidebar">
   <div class="brand"><img class="brand-mark" src="/budo_studio.png" alt="BUDO Studio"><div><b>BUDO <span>Studio</span></b><small>Certificate Designer</small></div></div>
@@ -13,7 +14,7 @@
   </nav>
   <div class="side-bottom"><div class="private-label"><i></i><div><strong>Mode privé</strong><small>Traitement local dans le navigateur</small></div></div><small>SELF DEFENSE BUDO · V3.0</small></div>
 </aside>
-<main class="main">
+<main class="main" id="main-content" tabindex="-1">
   <header class="topbar"><div class="breadcrumbs">BUDO STUDIO <span>›</span> <strong id="crumb">Éditeur de diplôme</strong></div><div class="topbar-right"><span class="save-dot"></span><span id="save-state">Configuration locale</span><span id="auth-state" class="auth-state">Mode public</span><button class="btn secondary small header-login" id="btn-header-login">Connexion</button><button class="btn secondary small" id="btn-preferences" title="Préférences du compte"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.6a8 8 0 0 1-1.6.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.6-.9l-1.7.6-1.4-2.4 1.4-1.1a8 8 0 0 1 0-1.9l-1.4-1.1 1.4-2.4 1.7.6a8 8 0 0 1 1.6-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.6.9l1.7-.6 1.4 2.4-1.4 1.1a8 8 0 0 1 0 1.8Z" transform="translate(-1 -1)"/></svg><span>Préférences</span></button><button class="avatar" title="BUDO Studio">B</button></div></header>
   <div class="page">
     <div class="page-head"><div><div class="eyebrow">SELF DEFENSE BUDO · CERTIFICATE DESIGNER</div><h1 id="page-title">Éditeur de diplôme</h1><p id="page-subtitle">Déplacez directement chaque zone sur le modèle, avec un aperçu fidèle en temps réel.</p></div><div class="header-actions"><button class="btn secondary" id="btn-load-demo"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4"/></svg> &nbsp; Charger un exemple</button><button class="btn primary" id="btn-export"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v13m-5-5 5 5 5-5M5 21h14"/></svg> &nbsp; Exporter les diplômes</button></div></div>
@@ -50,7 +51,7 @@
   </div>
 </main>
 </div>
-<section id="backend-gate" class="backend-gate" aria-live="polite" aria-busy="true">
+<section id="backend-gate" class="backend-gate" role="dialog" aria-modal="true" aria-live="polite" aria-busy="true">
   <div class="backend-gate-card">
     <span class="backend-gate-icon">⌁</span>
     <p class="eyebrow">ESPACE SÉCURISÉ</p>

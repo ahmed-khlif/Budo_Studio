@@ -360,8 +360,9 @@ async function inspectExcelFile(file){if(!/\.xlsx$/i.test(file.name))throw Error
  }
  return output;
 }
-function openModal(content,{wide=false}={}){const root=$('#modal-root');root.innerHTML=`<div class="modal-backdrop"><div class="modal-box ${wide?'wide':''}">${content}</div></div>`;const backdrop=root.querySelector('.modal-backdrop');backdrop.addEventListener('pointerdown',e=>{if(e.target===backdrop)closeModal()});root.querySelector('.modal-x')?.addEventListener('click',closeModal);return root}
-function closeModal(){$('#modal-root').replaceChildren()}
+let modalPreviousFocus=null,modalKeydownHandler=null;
+function openModal(content,{wide=false}={}){const root=$('#modal-root');modalPreviousFocus=document.activeElement;root.innerHTML=`<div class="modal-backdrop"><div class="modal-box ${wide?'wide':''}" role="dialog" aria-modal="true">${content}</div></div>`;const backdrop=root.querySelector('.modal-backdrop');backdrop.addEventListener('pointerdown',e=>{if(e.target===backdrop)closeModal()});root.querySelector('.modal-x')?.addEventListener('click',closeModal);modalKeydownHandler=event=>{if(event.key==='Escape'){closeModal();return}if(event.key!=='Tab')return;const focusables=[...root.querySelectorAll('button,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(node=>!node.disabled);if(!focusables.length)return;const first=focusables[0],last=focusables[focusables.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}};window.addEventListener('keydown',modalKeydownHandler);requestAnimationFrame(()=>{const focusable=root.querySelector('button,input,select,textarea,[tabindex]:not([tabindex="-1"])');focusable?.focus()});return root}
+function closeModal(){if(modalKeydownHandler){window.removeEventListener('keydown',modalKeydownHandler);modalKeydownHandler=null}$('#modal-root').replaceChildren();if(modalPreviousFocus&&document.contains(modalPreviousFocus))requestAnimationFrame(()=>modalPreviousFocus.focus());modalPreviousFocus=null}
 function askConfirm(message,{title='Confirmer cette action',confirmLabel='Confirmer',danger=false}={}){return new Promise(resolve=>{let finished=false;const finish=value=>{if(finished)return;finished=true;window.removeEventListener('keydown',onKey);closeModal();resolve(value)};const onKey=event=>{if(event.key==='Escape')finish(false)};openModal(`<div class="confirm-dialog"><div class="confirm-icon ${danger?'danger':''}">${danger?'!':'?'}</div><div class="modal-head"><div><h2>${html(title)}</h2><p>${html(message)}</p></div><button class="modal-x" aria-label="Fermer">×</button></div><div class="modal-footer"><button class="btn secondary" id="confirm-cancel">Annuler</button><button class="btn ${danger?'danger':'primary'}" id="confirm-accept">${html(confirmLabel)}</button></div></div>`);$('#confirm-cancel').onclick=()=>finish(false);$('#confirm-accept').onclick=()=>finish(true);$('#modal-root').querySelector('.modal-x').onclick=()=>finish(false);$('#modal-root').querySelector('.modal-backdrop').addEventListener('pointerdown',event=>{if(event.target===event.currentTarget)finish(false)});window.addEventListener('keydown',onKey)})}
 async function handleExcel(files){
  const list=[...files];if(!list.length)return;
@@ -462,6 +463,7 @@ function selectedCandidates(){return state.candidates.filter(c=>state.selectedId
 function touchSelection(){persist();renderCandidates()}
 function renderCandidates(){state.candidates=state.candidates.map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)}));
  renderBeltSelectors();
+ const mobileSearch=$('#mobile-candidate-search');if(mobileSearch&&mobileSearch.value!==state.search)mobileSearch.value=state.search;
  $('#candidate-status').value=state.filterStatus;$('#candidate-sort').value=state.candidateSort;$('#candidate-page-size').value=String(state.pageSize);
  const rows=filteredCandidates(),pages=Math.max(1,Math.ceil(rows.length/state.pageSize));state.currentPage=clamp(state.currentPage,1,pages);
  const start=(state.currentPage-1)*state.pageSize,view=rows.slice(start,start+state.pageSize);
@@ -597,6 +599,7 @@ function openPreferencesDialog(){
 }
 function bindBackendTools(){const handleLogin=async()=>{if(!backendClient)return showBackendLogin();if(backendSession){await backendClient.auth.signOut();return}else showBackendLogin()};const login=$('#btn-backend-login');if(login)login.onclick=handleLogin;const headerLogin=$('#btn-header-login');if(headerLogin)headerLogin.onclick=handleLogin;$('#btn-preferences')?.addEventListener('click',openPreferencesDialog);$$('[data-ai-prompt]').forEach(button=>button.onclick=()=>{$('#legacy-ai-prompt').value=button.dataset.aiPrompt||'';$('#legacy-ai-prompt').focus()});$('#btn-save-backend')?.addEventListener('click',async()=>{if(!backendReady)return showToast('Exécutez schema.sql puis rechargez.',true);await syncBackend();showToast('Candidats et configuration du modèle enregistrés dans Supabase')});$('#btn-ai-brainstorm')?.addEventListener('click',runLegacyBrainstorm);$('#btn-ai-ocr')?.addEventListener('click',()=>$('#legacy-ocr-file')?.click());$('#legacy-ocr-file')?.addEventListener('change',event=>{runLegacyOcr(event.target.files?.[0]);event.target.value=''})}
 function bindGlobal(){
+ if(!window.__BudoNavA11yBound){window.__BudoNavA11yBound=true;const syncRoute=()=>{const page=window.location.hash.match(/^#\/studio\/(editor|overview|candidates|templates)$/)?.[1];if(page&&page!==state.page)setPage(page)};document.addEventListener('click',event=>{const button=event.target.closest('[data-nav]');if(!button)return;requestAnimationFrame(()=>{$$('[data-nav]').forEach(item=>item.dataset.nav===state.page?item.setAttribute('aria-current','page'):item.removeAttribute('aria-current'));const nextHash=`#/studio/${state.page}`;if(window.location.hash!==nextHash)window.history.pushState({page:state.page},'',nextHash);$('#main-content')?.focus({preventScroll:true})})});window.addEventListener('popstate',syncRoute);}
  bindFabricEditor();
  $$('[data-nav]').forEach(b=>b.onclick=()=>setPage(b.dataset.nav));$('#editor-belt').onchange=e=>selectBelt(e.target.value);$('#preview-candidate').onchange=e=>{state.previewId=e.target.value;renderFieldLayer();renderZoneList()};$('#candidate-belt').onchange=e=>{state.filterBelt=e.target.value;state.currentPage=1;renderCandidates()};$('#candidate-search').oninput=e=>{state.search=e.target.value;state.currentPage=1;renderCandidates()};$('#candidate-status').onchange=e=>{state.filterStatus=e.target.value;state.currentPage=1;renderCandidates()};$('#candidate-sort').onchange=e=>{state.candidateSort=e.target.value;state.currentPage=1;renderCandidates()};$('#candidate-page-size').onchange=e=>{state.pageSize=Number(e.target.value);state.currentPage=1;renderCandidates()};
  $('#btn-load-demo').onclick=loadDemo;$('#btn-export').onclick=exportDialog;$('#btn-export-table').onclick=exportDialog;$('#btn-add-candidate').onclick=()=>editCandidate();$('#btn-number').onclick=assignNumbers;
@@ -617,6 +620,7 @@ function bindGlobal(){
  const drop=$('#overview-drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='#1c67ac'});drop.addEventListener('dragleave',()=>drop.style.borderColor='');drop.addEventListener('drop',async e=>{e.preventDefault();drop.style.borderColor='';await handleExcel(e.dataTransfer.files)});
  $('#zone-list').addEventListener('click',e=>{const eye=e.target.closest('[data-eye]'),lock=e.target.closest('[data-lock]'),row=e.target.closest('[data-field]');if(eye){const f=getField(eye.dataset.eye);updateField(f.id,{visible:!f.visible});renderInspector()}else if(lock){const f=getField(lock.dataset.lock);updateAndInspector(f.id,{locked:!f.locked})}else if(row)selectField(row.dataset.field)});
  $('#field-layer').addEventListener('pointerdown',handlePointerDown);document.addEventListener('pointermove',handlePointerMove);document.addEventListener('pointerup',handlePointerUp);document.addEventListener('pointercancel',handlePointerUp);
+ $('#field-layer').addEventListener('keydown',event=>{const field=event.target.closest('.field-zone');if(!field)return;if(event.key==='Enter'||event.key===' '){event.preventDefault();selectField(field.dataset.fieldId)}});
  $('#sheet').addEventListener('dblclick',e=>{if(e.target.closest('.field-zone'))return;const rect=$('#sheet').getBoundingClientRect();addField({x:clamp((e.clientX-rect.left)/state.zoom,0,W),y:clamp((e.clientY-rect.top)/state.zoom,0,H)})});
  $('#sheet').addEventListener('pointerdown',e=>{if(fabricMode||e.target.closest('.field-zone'))return;$$('.field-zone').forEach(el=>el.classList.remove('selected'));state.selected=null;renderZoneList();renderInspector()});
  document.addEventListener('keydown',e=>{const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo()}else if((e.ctrlKey||e.metaKey)&&!typing&&e.key.toLowerCase()==='y'){e.preventDefault();redo()}else if(e.key==='Escape')closeModal();else nudgeSelected(e)});
@@ -687,8 +691,26 @@ function bindGlobal(){
   };
   document.addEventListener('click',immediateDeletionHandler,true);
  }
+ function ensureMobileCandidateRail(){
+  const panel=$('#view-candidates .candidate-panel'),filterbar=panel?.querySelector('.filterbar');
+  if(!panel||!filterbar||$('#candidate-mobile-rail'))return;
+  const rail=document.createElement('div');
+  rail.id='candidate-mobile-rail';rail.className='candidate-mobile-rail';
+  rail.innerHTML='<label class="candidate-mobile-search"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><span class="sr-only">Rechercher un candidat</span><input id="mobile-candidate-search" type="search" inputmode="search" autocomplete="off" placeholder="Rechercher…" aria-label="Rechercher un candidat"></label><button class="btn secondary small" id="btn-mobile-filters" type="button" aria-expanded="false" aria-controls="candidate-filters"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>Filtres</span></button><button class="btn secondary small" id="btn-mobile-top" type="button" aria-label="Revenir en haut"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5"/></svg><span>Haut</span></button>';
+  filterbar.id='candidate-filters';filterbar.classList.add('mobile-filterbar-collapsed');panel.insertBefore(rail,filterbar);
+  const mobileSearch=$('#mobile-candidate-search'),desktopSearch=$('#candidate-search'),toggle=$('#btn-mobile-filters'),top=$('#btn-mobile-top');
+  mobileSearch.oninput=event=>{desktopSearch.value=event.target.value;state.search=event.target.value;state.currentPage=1;renderCandidates()};
+  toggle.onclick=()=>{const open=filterbar.classList.toggle('mobile-filterbar-collapsed')===false;toggle.setAttribute('aria-expanded',String(open));toggle.classList.toggle('active',open)};
+  top.onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+ }
+ const originalRenderFieldLayer=renderFieldLayer;
+ renderFieldLayer=(...args)=>{originalRenderFieldLayer(...args);$$('#field-layer .field-zone').forEach(field=>{field.tabIndex=0;field.setAttribute('role','button');field.setAttribute('aria-label',`${field.dataset.title||'Zone'} — utilisez les flèches pour déplacer`);field.setAttribute('aria-pressed',String(field.dataset.fieldId===state.selected))})};
  async function start(){
+  ensureMobileCandidateRail();
   bindGlobal();bindImmediateDeletion();bindTemplateCreation();bindBackendTools();
+  const initialPage=window.location.hash.match(/^#\/studio\/(editor|overview|candidates|templates)$/)?.[1];if(initialPage)setPage(initialPage);
+  Object.entries({'#btn-undo':'Annuler','#btn-redo':'Rétablir','#btn-zoom-out':'Réduire le zoom','#btn-zoom-in':'Augmenter le zoom','#btn-fit':'Ajuster l’aperçu','#btn-grid':'Afficher la grille','#btn-guides':'Afficher les guides','#btn-snap':'Activer l’aimantation'}).forEach(([selector,label])=>$(selector)?.setAttribute('aria-label',label));
+  requestAnimationFrame(()=>$$('[data-nav]').forEach(item=>item.dataset.nav===state.page?item.setAttribute('aria-current','page'):item.removeAttribute('aria-current')));
   await initBackend();
   if(backendReady){renderTemplateList();await new Promise(resolve=>setTimeout(resolve,130));fitZoom()}
  }

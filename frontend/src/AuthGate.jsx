@@ -61,7 +61,7 @@ function LoginPage({ client, onAuthenticated }) {
     setNotice('');
     setResetBusy(true);
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}#/reset-password`;
+      const redirectTo = `${window.location.origin}${window.location.pathname}?reset-password=1`;
       const { error: resetError } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (resetError) throw resetError;
       setNotice('Un lien de récupération a été envoyé à votre adresse email.');
@@ -105,6 +105,62 @@ function LoginPage({ client, onAuthenticated }) {
   );
 }
 
+function isPasswordResetRoute() {
+  return window.location.search.includes('reset-password') || window.location.hash.includes('reset-password');
+}
+
+function ResetPasswordPage({ client, onComplete }) {
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (password.length < 8) {
+      setError('Utilisez au moins 8 caractères pour votre nouveau mot de passe.');
+      return;
+    }
+    if (password !== confirmation) {
+      setError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error: updateError } = await client.auth.updateUser({ password });
+      if (updateError) throw updateError;
+      onComplete();
+    } catch (updateError) {
+      setError(friendlyError(updateError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-shell auth-reset-shell" aria-label="Réinitialisation du mot de passe">
+        <div className="auth-brand-panel">
+          <div className="auth-brand"><img className="auth-brand-mark" src={budoBrand} alt="BUDO Studio" /><span><strong>BUDO<span>Studio</span></strong><small>Certificate Designer</small></span></div>
+          <div className="auth-hero"><span className="auth-eyebrow">ESPACE SÉCURISÉ</span><h1>Un nouveau<br /><em>départ, simplement.</em></h1><p>Choisissez un mot de passe unique pour protéger vos candidats, modèles et exports.</p></div>
+        </div>
+        <div className="auth-form-panel">
+          <div className="auth-form-heading"><span className="auth-lock"><Icon name="shield" size={20} /></span><span className="auth-eyebrow">RÉINITIALISATION</span><h2>Nouveau mot de passe</h2><p>Votre nouveau mot de passe doit contenir au moins 8 caractères.</p></div>
+          <form className="auth-form" onSubmit={submit}>
+            <label>Nouveau mot de passe<div className="auth-password"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="8 caractères minimum" required minLength={8} autoFocus /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}>{showPassword ? 'Masquer' : 'Afficher'}</button></div></label>
+            <label>Confirmer le mot de passe<input type={showPassword ? 'text' : 'password'} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" placeholder="Répétez votre mot de passe" required minLength={8} /></label>
+            {error && <div className="auth-message error" role="alert"><Icon name="alert" size={16} />{error}</div>}
+            <div className="auth-form-actions"><button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Mise à jour…' : 'Enregistrer le mot de passe'}<Icon name="arrow" size={18} /></button></div>
+          </form>
+          <div className="auth-privacy"><Icon name="shield" size={18} /><div><strong>Votre session de récupération est sécurisée</strong><small>Le lien expire automatiquement après utilisation.</small></div></div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 export default function AuthGate() {
   const client = useMemo(() => {
     if (!supabaseUrl || !supabaseKey) return null;
@@ -112,6 +168,7 @@ export default function AuthGate() {
   }, []);
   const [status, setStatus] = useState(client ? 'checking' : 'config-error');
   const [session, setSession] = useState(null);
+  const [resetRequested, setResetRequested] = useState(() => isPasswordResetRoute());
 
   useEffect(() => {
     if (!client) return undefined;
@@ -126,8 +183,9 @@ export default function AuthGate() {
       setStatus(data.session ? 'authenticated' : 'login');
       if (!data.session) window.location.hash = '#/login';
     });
-    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = client.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
+      if (event === 'PASSWORD_RECOVERY') setResetRequested(true);
       setSession(nextSession);
       setStatus(nextSession ? 'authenticated' : 'login');
       if (!nextSession) window.location.hash = '#/login';
@@ -139,13 +197,17 @@ export default function AuthGate() {
         window.location.hash = '#/login';
       }
     };
+    const handleRouteChange = () => setResetRequested(isPasswordResetRoute());
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
     window.addEventListener('budo:auth-state', handleLegacyAuth);
-    return () => { mounted = false; listener?.subscription?.unsubscribe(); window.removeEventListener('budo:auth-state', handleLegacyAuth); if (window.BudoAuthClient === client) delete window.BudoAuthClient; };
+    return () => { mounted = false; listener?.subscription?.unsubscribe(); window.removeEventListener('hashchange', handleRouteChange); window.removeEventListener('popstate', handleRouteChange); window.removeEventListener('budo:auth-state', handleLegacyAuth); if (window.BudoAuthClient === client) delete window.BudoAuthClient; };
   }, [client]);
 
   if (status === 'config-error') return <main className="auth-page"><div className="auth-system-message"><strong>Configuration Supabase manquante</strong><p>Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_PUBLISHABLE_KEY dans les variables Vercel, puis redéployez.</p></div></main>;
   if (status === 'error') return <main className="auth-page"><div className="auth-system-message"><strong>Connexion Supabase impossible</strong><p>Rechargez la page et vérifiez la configuration du projet.</p><button className="auth-submit" onClick={() => window.location.reload()}>Réessayer</button></div></main>;
   if (status === 'checking') return <main className="auth-page"><div className="auth-loading"><span className="auth-spinner" /><strong>Vérification de votre session…</strong><small>BUDO Studio</small></div></main>;
+  if (resetRequested) return <ResetPasswordPage client={client} onComplete={() => { window.history.replaceState({}, '', window.location.pathname); window.location.hash = '#/studio'; setResetRequested(false); setStatus('authenticated'); }} />;
   if (!session) return <LoginPage client={client} onAuthenticated={(nextSession) => { setSession(nextSession); setStatus('authenticated'); window.location.hash = '#/studio'; }} />;
   return <MainStudio authClient={client} />;
 }
