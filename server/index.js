@@ -79,12 +79,25 @@ const beltSchema = z.object({
 });
 
 const preferencesSchema = z.record(z.string(), z.unknown());
+const certificateIssueSchema = z.object({
+  clientId: z.string().trim().max(120).optional(),
+  candidateId: z.string().trim().max(120).nullable().optional(),
+  name: z.string().trim().min(1).max(160),
+  belt: z.string().trim().max(100).optional().default(''),
+  kyu: z.union([z.number().int().positive(), z.string().trim().max(40)]).nullable().optional(),
+  examDate: z.string().trim().max(80).optional().default(''),
+  obtained: z.string().trim().max(80).optional().default(''),
+  serial: z.string().trim().max(80).optional().default(''),
+  templateSnapshot: z.record(z.string(), z.unknown()).optional().default({}),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
+});
 
 const memory = {
   candidates: new Map(),
   presets: new Map(),
   assets: new Map(),
   preferences: new Map(),
+  certificates: new Map(),
 };
 
 const supabaseServerKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -176,6 +189,110 @@ function now() {
 function cleanNullable(value) {
   const text = value === undefined || value === null ? '' : String(value).trim();
   return text || null;
+}
+
+function certificateToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function certificateTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function publicAppUrl(request) {
+  const protocol = String(request.get('x-forwarded-proto') || request.protocol).split(',')[0].trim();
+  return String(process.env.PUBLIC_APP_URL || `${protocol}://${request.get('host')}`).replace(/\/$/, '');
+}
+
+function publicCertificate(record) {
+  return {
+    id: record.id,
+    publicCode: record.public_code,
+    name: record.name,
+    belt: record.belt || '',
+    kyu: record.kyu || null,
+    examDate: record.exam_date || '',
+    obtained: record.obtained || '',
+    serial: record.serial || '',
+    status: record.status || 'active',
+    previewUrl: record.preview_url || '',
+    issuedAt: record.issued_at || record.created_at || null,
+  };
+}
+
+async function issueCertificates(request, body) {
+  const input = Array.isArray(body) ? body : body?.certificates;
+  if (!Array.isArray(input) || !input.length) throw authError('Provide at least one certificate to issue.', 400);
+  if (input.length > 4000) throw authError('A certificate issue request cannot contain more than 4000 items.', 413);
+  const workspaceId = await workspaceOf(request);
+  const user = await authenticatedUser(request);
+  const issued = input.map(item => {
+    const parsed = certificateIssueSchema.parse(item);
+    const token = certificateToken();
+    const timestamp = now();
+    return {
+      id: id(),
+      clientId: parsed.clientId || null,
+      token,
+      workspace_id: workspaceId,
+      candidate_id: parsed.candidateId || null,
+      token_hash: certificateTokenHash(token),
+      public_code: crypto.randomBytes(8).toString('hex').toUpperCase(),
+      name: parsed.name,
+      belt: parsed.belt,
+      kyu: cleanNullable(parsed.kyu),
+      exam_date: cleanNullable(parsed.examDate),
+      obtained: cleanNullable(parsed.obtained),
+      serial: parsed.serial,
+      status: 'active',
+      preview_url: null,
+      template_snapshot: parsed.templateSnapshot,
+      metadata: parsed.metadata,
+      created_by: user?.id || null,
+      issued_at: timestamp,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+  });
+  if (supabase) {
+    const { data, error } = await supabase.from('issued_certificates').insert(issued.map(({ token, clientId, ...record }) => record)).select('*');
+    if (error) {
+      if (error.code === 'PGRST205') throw authError('Run supabase/certificates.sql in the connected project to enable QR verification.', 503);
+      throw error;
+    }
+    const byId = new Map((data || []).map(record => [record.id, record]));
+    return issued.map(record => {
+      const saved = byId.get(record.id) || record;
+      return { ...publicCertificate(saved), clientId: record.clientId, verificationToken: record.token, verificationUrl: `${publicAppUrl(request)}/?certificate=${encodeURIComponent(record.token)}` };
+    });
+  }
+  issued.forEach(record => memory.certificates.set(record.token_hash, record));
+  return issued.map(record => ({ ...publicCertificate(record), clientId: record.clientId, verificationToken: record.token, verificationUrl: `${publicAppUrl(request)}/?certificate=${encodeURIComponent(record.token)}` }));
+}
+
+async function findCertificateByToken(token) {
+  const hash = certificateTokenHash(token);
+  if (!supabase) return memory.certificates.get(hash) || null;
+  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at').eq('token_hash', hash).maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function saveCertificatePreview(request, certificateId) {
+  if (!request.file) throw authError('Attach the generated certificate preview as the file field.', 400);
+  if (!hasCloudinary) throw authError('Cloudinary is not configured for certificate previews.', 503);
+  const workspaceId = await workspaceOf(request);
+  const result = await uploadToCloudinary(request.file, `budo-studio/certificates/${workspaceId}`);
+  if (supabase) {
+    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: result.secure_url }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at').maybeSingle();
+    if (error) throw error;
+    if (!data) throw authError('Issued certificate not found.', 404);
+    return publicCertificate(data);
+  }
+  const record = [...memory.certificates.values()].find(item => item.id === certificateId && item.workspace_id === workspaceId);
+  if (!record) throw authError('Issued certificate not found.', 404);
+  record.preview_url = result.secure_url;
+  return publicCertificate(record);
 }
 
 function candidateForStorage(candidate) {
@@ -550,6 +667,7 @@ async function generateText(contents, config = {}) {
 
 app.get('/api/health', async (_request, response) => {
   let schemaReady = !supabase;
+  let certificatesReady = !supabase;
   let schemaError = null;
   let preferencesReady = !supabase;
   if (supabase) {
@@ -557,8 +675,10 @@ app.get('/api/health', async (_request, response) => {
       supabase.from('candidates').select('id').limit(1),
       supabase.from('template_presets').select('id').limit(1),
       supabase.from('template_assets').select('id,preview_url,resource_type,mime_type').limit(1),
+      supabase.from('issued_certificates').select('id').limit(1),
     ]);
-    const error = checks.map((result) => result.error).find(Boolean);
+    const error = checks.slice(0, 3).map((result) => result.error).find(Boolean);
+    certificatesReady = !checks[3].error;
     const preferencesCheck = await supabase.from('workspace_preferences').select('workspace_id').limit(1);
     preferencesReady = !preferencesCheck.error;
     schemaReady = !error;
@@ -570,6 +690,7 @@ app.get('/api/health', async (_request, response) => {
     storage: supabase ? 'supabase' : 'memory',
     schemaReady,
     schemaError,
+    certificatesReady,
     authRequired: requireAuth,
     workspaceMode: sharedWorkspaceId ? 'shared' : 'account',
     cloudinary: hasCloudinary,
@@ -622,6 +743,34 @@ app.put('/api/admin/users/:id/role', async (request, response, next) => {
     const { data, error } = await supabase.auth.admin.updateUserById(request.params.id, { app_metadata: appMetadata });
     if (error) throw error;
     response.json({ id: data.user.id, email: data.user.email || null, role });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/verify/:token', async (request, response, next) => {
+  try {
+    const token = String(request.params.token || '').trim();
+    if (!/^[A-Za-z0-9_-]{32,100}$/.test(token)) return response.status(404).json({ error: 'Certificate not found.' });
+    const certificate = await findCertificateByToken(token);
+    if (!certificate) return response.status(404).json({ error: 'Certificate not found.' });
+    response.json(publicCertificate(certificate));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/certificates/issue', async (request, response, next) => {
+  try {
+    response.status(201).json({ data: await issueCertificates(request, request.body) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/certificates/:id/preview', upload.single('file'), async (request, response, next) => {
+  try {
+    response.json(await saveCertificatePreview(request, request.params.id));
   } catch (error) {
     next(error);
   }

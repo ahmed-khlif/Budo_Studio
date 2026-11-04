@@ -161,7 +161,51 @@ function ResetPasswordPage({ client, onComplete }) {
   );
 }
 
+function certificateTokenFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = params.get('certificate');
+  if (queryToken) return queryToken.trim();
+  const hashMatch = window.location.hash.match(/^#\/verify\/([A-Za-z0-9_-]{32,100})$/);
+  return hashMatch?.[1] || '';
+}
+
+function PublicCertificatePage({ token }) {
+  const [state, setState] = useState({ status: 'loading', certificate: null, error: '' });
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/verify/${encodeURIComponent(token)}`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Certificat introuvable.');
+        return data;
+      })
+      .then((certificate) => { if (active) setState({ status: 'ready', certificate, error: '' }); })
+      .catch((error) => { if (active) setState({ status: 'error', certificate: null, error: error.message }); });
+    return () => { active = false; };
+  }, [token]);
+
+  const certificate = state.certificate;
+  return <main className="public-certificate-page">
+    <section className="public-certificate-shell" aria-labelledby="public-certificate-title">
+      <header className="public-certificate-header"><img src={budoBrand} alt="BUDO Studio" /><span><strong>BUDO<span>Studio</span></strong><small>Certificate verification</small></span></header>
+      {state.status === 'loading' && <div className="public-certificate-state"><span className="auth-spinner" /><strong>Vérification du certificat…</strong><small>Connexion sécurisée à BUDO Studio</small></div>}
+      {state.status === 'error' && <div className="public-certificate-state error"><span className="public-status-icon"><Icon name="alert" size={22} /></span><strong>Certificat introuvable</strong><p>{state.error || 'Ce lien est incorrect ou expiré.'}</p></div>}
+      {state.status === 'ready' && certificate && <>
+        <div className={`public-certificate-status ${certificate.status === 'active' ? 'active' : 'revoked'}`}><Icon name={certificate.status === 'active' ? 'check' : 'alert'} size={18} /><span>{certificate.status === 'active' ? 'Certificat vérifié' : 'Certificat révoqué'}</span></div>
+        <div className="public-certificate-heading"><span className="auth-eyebrow">CERTIFICAT OFFICIEL</span><h1 id="public-certificate-title">{certificate.name}</h1><p>{certificate.belt || 'Grade non renseigné'}{certificate.kyu ? ` · ${certificate.kyu}ème Kyu` : ''}</p></div>
+        {certificate.previewUrl ? <img className="public-certificate-preview" src={certificate.previewUrl} alt={`Aperçu du certificat de ${certificate.name}`} /> : <div className="public-certificate-preview-placeholder"><span>APERÇU DU CERTIFICAT</span><small>Le document original est conservé par l’organisation émettrice.</small></div>}
+        <dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl>
+        <p className="public-certificate-note">Ce certificat a été émis et peut être vérifié via BUDO Studio. Les informations personnelles non nécessaires ne sont pas affichées publiquement.</p>
+      </>}
+      <footer className="public-certificate-footer">BUDO Studio · Vérification publique de certificat</footer>
+    </section>
+  </main>;
+}
+
 export default function AuthGate() {
+  const certificateToken = useMemo(() => certificateTokenFromLocation(), []);
+  if (certificateToken) return <PublicCertificatePage token={certificateToken} />;
   const client = useMemo(() => {
     if (!supabaseUrl || !supabaseKey) return null;
     return createClient(supabaseUrl, supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });

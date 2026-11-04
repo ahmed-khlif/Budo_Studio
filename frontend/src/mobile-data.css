@@ -34,6 +34,23 @@
 button, a, select, input, textarea { touch-action: manipulation; }
 .field-zone:focus-visible { outline: 3px solid #a16207; outline-offset: 3px; }
 .candidate-mobile-rail { display: none; }
+.qr-field-art {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  background: transparent;
+}
+.qr-frame-rounded { padding: 6px; border-radius: 12px; background: rgb(255 255 255 / 94%); }
+.qr-field-image { display: block; width: min(100%, 100%); height: auto; max-height: calc(100% - 14px); object-fit: contain; image-rendering: pixelated; opacity: .2; transition: opacity .18s ease; }
+.qr-field-image.ready { opacity: 1; }
+.qr-field-caption { max-width: 100%; overflow: hidden; text-align: center; white-space: nowrap; text-overflow: ellipsis; font: 600 10px/1.1 Arial, sans-serif; color: #0f172a; }
+.inspector-head-actions { display: flex; align-items: center; gap: 7px; }
 
 @media (max-width: 760px) {
   .table-scroll {
@@ -308,6 +325,8 @@ button, a, select, input, textarea { touch-action: manipulation; }
   .topbar-right .avatar { display: none; }
   .topbar-right #btn-preferences { min-width: 42px; }
   .topbar-right .save-dot { display: none; }
+  .inspector-head-actions { width: 100%; }
+  .inspector-head-actions .btn { flex: 1; min-width: 0; }
 
   #view-candidates .candidate-mobile-rail {
     position: sticky;

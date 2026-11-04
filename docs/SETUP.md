@@ -14,8 +14,12 @@ Open `http://localhost:8787/`. This is the single main BUDO Studio app containin
 1. Open the Supabase SQL Editor for the project configured in `.env`.
 2. Paste and run the complete [`../supabase/schema.sql`](../supabase/schema.sql) file.
 3. Confirm that `candidates`, `template_presets`, and `template_assets` exist in the `public` schema.
-4. Check `http://localhost:8787/api/health` and verify `schemaReady` is `true`.
-5. Sign in through the BUDO Studio connection dialog, then use **Enregistrer tout** to sync candidates and the active template preset.
+4. Run [`../supabase/shared_workspace.sql`](../supabase/shared_workspace.sql) if all authenticated accounts should collaborate in the shared studio.
+5. Run [`../supabase/certificates.sql`](../supabase/certificates.sql) to enable QR verification records and the public certificate page.
+6. Check `http://localhost:8787/api/health` and verify `schemaReady` and `certificatesReady` are `true`.
+7. Sign in through the BUDO Studio connection dialog, then use **Enregistrer tout** to sync candidates and the active template preset.
+
+QR verification requires `certificates.sql`. Generated certificate previews are uploaded to Cloudinary when Cloudinary is configured; without it, the public verification page still shows the verified certificate details but no image preview.
 
 The server uses the server-only `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`). Never put either key in frontend files. The browser only receives the Supabase publishable key.
 

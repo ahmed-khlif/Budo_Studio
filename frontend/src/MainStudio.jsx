@@ -36,6 +36,11 @@ export default function MainStudio({ authClient }) {
       window.BudoPdfJs = pdfjs;
       return pdfjs;
     });
+    window.BudoQrLoader = window.BudoQrLoader || (async () => {
+      const module = await import('qrcode');
+      window.BudoQrCode = module.default || module;
+      return window.BudoQrCode;
+    });
     if (authClient) window.BudoAuthClient = authClient;
     (async () => {
       try {
