@@ -220,6 +220,12 @@ function CertificateSnapshotPreview({ certificate, snapshot }) {
             direction: field.direction || 'rtl',
             justifyContent: align,
             textAlign: field.align || 'center',
+            filter: `brightness(${field.brightness || 100}%)`,
+            textShadow: [
+              field.glow ? `0 0 ${(Number(field.glow) / 100) * 18}px ${field.glowColor || '#ffffff'}` : '',
+              field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : '',
+            ].filter(Boolean).join(', ') || 'none',
+            textDecoration: field.underline ? 'underline' : 'none',
           };
           return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
             {isQr ? <>{qrSource && <img src={qrSource} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}

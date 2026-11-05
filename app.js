@@ -221,7 +221,7 @@ async function syncBackend(){
    debugLog('Preferences saved', {customBelts:nextPreferences.customBelts.length});
   }
   for(const belt of BELTS){
-   const beltId=belt.id,config=templateConfig(beltId,layoutSnapshot[beltId],state.templates[beltId]?.remoteUrl||''),fingerprint=templateFingerprint(config);
+   const beltId=belt.id,template=state.templates[beltId],config=templateConfig(beltId,layoutSnapshot[beltId],template?.remoteUrl||template?.src||''),fingerprint=templateFingerprint(config);
    const existingId=backendPresetIds.get(beltId);
     if(!existingId&&!config.backgroundUrl&&!customBeltMetadata(beltId)&&JSON.stringify(config.fields)===JSON.stringify(DEFAULT_FIELDS)&&config.size.width===DEFAULT_W&&config.size.height===DEFAULT_H)continue;
    if(existingId&&backendPresetFingerprints.get(beltId)===fingerprint){debugLog('Template unchanged', {belt:beltId});continue}
@@ -594,7 +594,8 @@ async function issueVerificationTokens(candidates){
  const response=await backendRequest('/certificates/issue',{method:'POST',body:JSON.stringify({certificates:needs.map(candidate=>{
    const certificateIdentity=String(candidate.metadata?.certificateIdentity||candidate.id);
    candidate.metadata={...(candidate.metadata||{}),certificateIdentity};
-   return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],state.templates[candidate.belt]?.remoteUrl||''),metadata:candidate.metadata};
+   const template=state.templates[candidate.belt];
+   return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],template?.remoteUrl||template?.src||''),metadata:candidate.metadata};
   })})});
  const byClient=new Map((response.data||[]).map(item=>[item.clientId,item]));
  needs.forEach(candidate=>{const issued=byClient.get(candidate.id);if(issued){candidate.verificationToken=issued.verificationToken;candidate.verificationUrl=issued.verificationUrl;candidate.issuedCertificateId=issued.id;candidate.verificationCode=issued.publicCode;candidate.certificatePreviewUrl=issued.previewUrl||candidate.certificatePreviewUrl||''}});if(needs.length)persist();
@@ -610,9 +611,10 @@ const originalGenerateExport=generateExport;
   return error?.message||'erreur de stockage inconnue';
  }
  async function uploadCertificatePreview(candidate,page){if(!candidate?.issuedCertificateId||!page?.previewDataUrl||!backendApiReady)return false;let lastError;for(let attempt=0;attempt<2;attempt++){try{const response=await fetch(page.previewDataUrl);if(!response.ok)throw Error('La génération locale de l’aperçu a échoué.');const blob=await response.blob(),form=new FormData();form.append('file',blob,`certificate-${candidate.serial||candidate.id}.jpg`);const saved=await backendRequest(`/certificates/${encodeURIComponent(candidate.issuedCertificateId)}/preview`,{method:'POST',body:form});if(!saved?.previewUrl)throw Error('Le serveur n’a pas retourné l’image de prévisualisation.');return true}catch(error){lastError=error;if(![408,425,429,500,502,503,504].includes(Number(error?.status))||attempt===1)break;await new Promise(resolve=>setTimeout(resolve,300))}}certificatePreviewFailures.add(certificatePreviewFailureMessage(lastError));debugLog('Certificate preview upload failed',lastError);return false}
-const originalRenderPdfCandidate=renderPdfCandidate;
-renderPdfCandidate=async(candidate,...args)=>{const page=await originalRenderPdfCandidate(candidate,...args);await uploadCertificatePreview(candidate,page);return page};
+// The public page reconstructs the preview from the saved template snapshot.
+// Do not upload one rendered image per certificate to Cloudinary.
  generateExport=async()=>{const scope=$('input[name="export-scope"]:checked')?.value,list=scope==='selected'?selectedCandidates():scope==='filtered'?filteredCandidates():scope==='belt'?state.candidates.filter(c=>c.belt===state.belt):state.candidates;certificatePreviewFailures.clear();try{await issueVerificationTokens(list);const result=await originalGenerateExport();if(certificatePreviewFailures.size){const detail=[...certificatePreviewFailures][0];showToast(`PDF généré. Aperçu public non enregistré : ${detail}. Le certificat reste vérifiable avec son aperçu reconstruit.`,true)}return result}catch(error){showToast(error.message,true)}};
+generateExport=async()=>{const scope=$('input[name="export-scope"]:checked')?.value,list=scope==='selected'?selectedCandidates():scope==='filtered'?filteredCandidates():scope==='belt'?state.candidates.filter(c=>c.belt===state.belt):state.candidates;try{await issueVerificationTokens(list);return await originalGenerateExport()}catch(error){showToast(error.message,true)}};
 async function ensureFonts(){try{await Promise.all([document.fonts.load('400 38px Mirza'),document.fonts.load('400 38px Amiri')])}catch{}await document.fonts.ready}
 function exportDialog(){
  const selected=selectedCandidates();const filtered=filteredCandidates();const belt=state.candidates.filter(c=>c.belt===state.belt);

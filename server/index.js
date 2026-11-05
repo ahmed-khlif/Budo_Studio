@@ -253,6 +253,10 @@ function publicAppUrl(request) {
 
 function publicTemplateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return null;
+  const requestedBackground = String(snapshot.backgroundUrl || '').trim();
+  const backgroundUrl = /^(?:https:\/\/res\.cloudinary\.com\/|\/|assets\/)/i.test(requestedBackground)
+    ? (requestedBackground.startsWith('assets/') ? `/${requestedBackground}` : requestedBackground)
+    : '';
   const size = snapshot.size && typeof snapshot.size === 'object'
     ? { width: Number(snapshot.size.width) || 645.75, height: Number(snapshot.size.height) || 936.75 }
     : { width: 645.75, height: 936.75 };
@@ -277,6 +281,12 @@ function publicTemplateSnapshot(snapshot) {
     opacity: Number.isFinite(Number(field?.opacity)) ? Number(field.opacity) : 1,
     rotation: Number(field?.rotation) || 0,
     letterSpacing: Number(field?.letterSpacing) || 0,
+    brightness: Number(field?.brightness) || 100,
+    glow: Number(field?.glow) || 0,
+    glowColor: field?.glowColor || '#ffffff',
+    shadow: Number(field?.shadow) || 0,
+    shadowColor: field?.shadowColor || '#000000',
+    underline: Boolean(field?.underline),
     qrFrame: field?.qrFrame || 'none',
     qrCaption: field?.qrCaption || '',
     qrDark: field?.qrDark || '#0f172a',
@@ -286,7 +296,7 @@ function publicTemplateSnapshot(snapshot) {
     version: Number(snapshot.version) || 1,
     belt: String(snapshot.belt || ''),
     size,
-    backgroundUrl: String(snapshot.backgroundUrl || ''),
+    backgroundUrl,
     fields,
   };
 }

@@ -20,7 +20,7 @@ This is a Vite/React client, so the Next.js `page.tsx`, cookie server client, an
 
 ## Cloudinary
 
-Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the server `.env`. Template backgrounds, candidate source images, and generated public certificate preview images are uploaded through Express; the final PDF/ZIP itself never passes through Cloudinary.
+Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the server `.env`. Template backgrounds and candidate source images are uploaded through Express. Public certificate pages reuse the saved template background and reconstruct the candidate text and QR position in the browser, so a separate rendered image is not stored for every certificate.
 
 Set a dedicated random `CERTIFICATE_TOKEN_SECRET` in production. It keeps deterministic QR tokens private and stable; the server-only Supabase key remains a backward-compatible fallback.
 
