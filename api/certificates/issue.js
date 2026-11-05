@@ -1,2 +1,8 @@
-// Explicit route for deployments using the repository root as the Vercel root.
-module.exports = require('../index.js');
+// Explicit route for certificate issue requests.
+const app = require('../../server/index.js');
+
+module.exports = (request, response) => {
+  const query = String(request.url || '').split('?').slice(1).join('?');
+  request.url = `/api/certificates/issue${query ? `?${query}` : ''}`;
+  return app(request, response);
+};
