@@ -170,12 +170,77 @@ function certificateTokenFromLocation() {
   return hashMatch?.[1] || '';
 }
 
+function certificateFieldValue(field, certificate) {
+  if (field.source === 'custom') return field.sample || '';
+  if (field.source === 'qr' || field.type === 'qr') return '';
+  if (field.source === 'kyu') return certificate.kyu ? `${certificate.kyu}ème Kyu` : '';
+  if (field.source === 'serial') return certificate.serial || '';
+  if (field.source === 'examDate') return certificate.examDate || '';
+  if (field.source === 'belt') return certificate.belt || '';
+  if (field.source === 'obtained') return certificate.obtained || '';
+  if (field.source === 'name') return certificate.name || '';
+  return '';
+}
+
+function CertificateSnapshotPreview({ certificate, snapshot }) {
+  const [qrSource, setQrSource] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    import('qrcode').then((module) => (module.default || module).toDataURL(window.location.href, { errorCorrectionLevel: 'H', margin: 1, width: 320 }))
+      .then((source) => { if (active) setQrSource(source); })
+      .catch(() => { if (active) setQrSource(''); });
+    return () => { active = false; };
+  }, [certificate.id]);
+
+  if (!snapshot?.backgroundUrl) return null;
+  const size = snapshot.size || { width: 645.75, height: 936.75 };
+  return <figure className="public-certificate-snapshot-figure">
+    <div className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
+      <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" />
+      <div className="public-certificate-snapshot-fields">
+        {(snapshot.fields || []).map((field) => {
+          const isQr = field.source === 'qr' || field.type === 'qr';
+          const value = certificateFieldValue(field, certificate);
+          if (!isQr && !value) return null;
+          const align = field.align === 'left' ? 'flex-start' : field.align === 'right' ? 'flex-end' : 'center';
+          const style = {
+            left: `${(field.x / size.width) * 100}%`,
+            top: `${(field.y / size.height) * 100}%`,
+            width: `${(field.w / size.width) * 100}%`,
+            height: `${(field.h / size.height) * 100}%`,
+            color: field.color,
+            opacity: field.opacity,
+            transform: `translate(-50%, -50%) rotate(${field.rotation || 0}deg)`,
+            fontFamily: `'${String(field.family || 'Arial').replace(/['"]/g, '')}', Arial, sans-serif`,
+            fontSize: `${(field.size / size.width) * 100}cqw`,
+            fontWeight: field.weight,
+            fontStyle: field.italic ? 'italic' : 'normal',
+            letterSpacing: `${(field.letterSpacing || 0) / size.width * 100}cqw`,
+            direction: field.direction || 'rtl',
+            justifyContent: align,
+            textAlign: field.align || 'center',
+          };
+          return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
+            {isQr ? <>{qrSource && <img src={qrSource} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}
+          </div>;
+        })}
+      </div>
+    </div>
+    <figcaption>Aperçu reconstruit depuis le modèle officiel et les données du certificat.</figcaption>
+  </figure>;
+}
+
 function CertificatePreview({ certificate }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
   }, [certificate.id, certificate.previewUrl]);
+
+  if ((!certificate.previewUrl || failed) && certificate.templateSnapshot?.backgroundUrl) {
+    return <CertificateSnapshotPreview certificate={certificate} snapshot={certificate.templateSnapshot} />;
+  }
 
   if (!certificate.previewUrl || failed) {
     return <div className="public-certificate-preview-placeholder">

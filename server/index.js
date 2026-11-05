@@ -251,6 +251,46 @@ function publicAppUrl(request) {
   return `${protocol}://${request.get('host')}`.replace(/\/$/, '');
 }
 
+function publicTemplateSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const size = snapshot.size && typeof snapshot.size === 'object'
+    ? { width: Number(snapshot.size.width) || 645.75, height: Number(snapshot.size.height) || 936.75 }
+    : { width: 645.75, height: 936.75 };
+  const fields = Array.isArray(snapshot.fields) ? snapshot.fields.map((field) => ({
+    id: field?.id || null,
+    source: field?.source || field?.type || 'custom',
+    type: field?.type || null,
+    label: field?.label || '',
+    sample: field?.source === 'custom' ? String(field?.sample || '') : '',
+    visible: field?.visible !== false,
+    x: Number(field?.x) || 0,
+    y: Number(field?.y) || 0,
+    w: Number(field?.w) || 120,
+    h: Number(field?.h) || 32,
+    size: Number(field?.size) || 24,
+    color: field?.color || '#0f172a',
+    family: field?.family || 'Arial',
+    weight: Number(field?.weight) || 400,
+    italic: Boolean(field?.italic),
+    align: field?.align || 'center',
+    direction: field?.direction || 'rtl',
+    opacity: Number.isFinite(Number(field?.opacity)) ? Number(field.opacity) : 1,
+    rotation: Number(field?.rotation) || 0,
+    letterSpacing: Number(field?.letterSpacing) || 0,
+    qrFrame: field?.qrFrame || 'none',
+    qrCaption: field?.qrCaption || '',
+    qrDark: field?.qrDark || '#0f172a',
+    qrLight: field?.qrLight || '#ffffff',
+  })).filter((field) => field.visible && field.id) : [];
+  return {
+    version: Number(snapshot.version) || 1,
+    belt: String(snapshot.belt || ''),
+    size,
+    backgroundUrl: String(snapshot.backgroundUrl || ''),
+    fields,
+  };
+}
+
 function publicCertificate(record) {
   return {
     id: record.id,
@@ -263,6 +303,7 @@ function publicCertificate(record) {
     serial: record.serial || '',
     status: record.status || 'active',
     previewUrl: record.preview_url || '',
+    templateSnapshot: publicTemplateSnapshot(record.template_snapshot),
     issuedAt: record.issued_at || record.created_at || null,
   };
 }
@@ -381,7 +422,7 @@ async function issueCertificates(request, body) {
 async function findCertificateByToken(token) {
   const hash = certificateTokenHash(token);
   if (!supabase) return memory.certificates.get(hash) || null;
-  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at').eq('token_hash', hash).maybeSingle();
+  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').eq('token_hash', hash).maybeSingle();
   if (error) throw error;
   return data || null;
 }
@@ -392,7 +433,7 @@ async function saveCertificatePreview(request, certificateId) {
   const workspaceId = await workspaceOf(request);
   const result = await uploadToCloudinary(request.file, `budo-studio/certificates/${workspaceId}`);
   if (supabase) {
-    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: result.secure_url }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at').maybeSingle();
+    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: result.secure_url }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
     if (error) throw error;
     if (!data) throw authError('Issued certificate not found.', 404);
     return publicCertificate(data);
