@@ -175,7 +175,7 @@ function PublicCertificatePage({ token }) {
 
   useEffect(() => {
     let active = true;
-    fetch(`${publicApiBase}/verify/${encodeURIComponent(token)}`)
+    fetch(`${publicApiBase}/verify?token=${encodeURIComponent(token)}`)
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || 'Certificat introuvable.');
