@@ -638,6 +638,52 @@ async function listCertificates(request) {
   return { data: (data || []).map((row) => certificateListItem(row, request)), total: count || 0, page, pageSize };
 }
 
+function certificateMutationId(request) {
+  return String(request.query.id || request.body?.id || '').trim();
+}
+
+async function revokeCertificate(request) {
+  const certificateId = certificateMutationId(request);
+  if (!certificateId) throw authError('Certificate id is required.', 400);
+  const workspaceId = await workspaceOf(request);
+  if (!supabase) {
+    const row = [...memory.certificates.values()].find((item) => item.id === certificateId && item.workspace_id === workspaceId);
+    if (!row) throw authError('Issued certificate not found in this workspace.', 404);
+    row.status = 'revoked';
+    row.revoked_at = row.revoked_at || now();
+    row.updated_at = now();
+    return certificateListItem(row, request);
+  }
+  const { data, error } = await supabase.from('issued_certificates')
+    .update({ status: 'revoked', revoked_at: now() })
+    .eq('id', certificateId)
+    .eq('workspace_id', workspaceId)
+    .select('id,issue_key,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw authError('Issued certificate not found in this workspace.', 404);
+  return certificateListItem(data, request);
+}
+
+async function deleteCertificate(request) {
+  const certificateId = certificateMutationId(request);
+  if (!certificateId) throw authError('Certificate id is required.', 400);
+  const workspaceId = await workspaceOf(request);
+  if (!supabase) {
+    const entry = [...memory.certificates.entries()].find(([, item]) => item.id === certificateId && item.workspace_id === workspaceId);
+    if (!entry) throw authError('Issued certificate not found in this workspace.', 404);
+    memory.certificates.delete(entry[0]);
+    return { id: certificateId, deleted: true };
+  }
+  const { count, error } = await supabase.from('issued_certificates')
+    .delete({ count: 'exact' })
+    .eq('id', certificateId)
+    .eq('workspace_id', workspaceId);
+  if (error) throw error;
+  if (!count) throw authError('Issued certificate not found in this workspace.', 404);
+  return { id: certificateId, deleted: true };
+}
+
 async function getCandidate(request, candidateId) {
   const workspaceId = await workspaceOf(request);
   if (!supabase) {
@@ -1048,6 +1094,22 @@ app.get('/api/verify/:token', async (request, response, next) => {
 app.get('/api/certificates/issue', async (request, response, next) => {
   try {
     response.json(await listCertificates(request));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/certificates/issue', async (request, response, next) => {
+  try {
+    response.json(await revokeCertificate(request));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/certificates/issue', async (request, response, next) => {
+  try {
+    response.json(await deleteCertificate(request));
   } catch (error) {
     next(error);
   }

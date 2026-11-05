@@ -792,7 +792,9 @@ function bindGlobal(){
   root.innerHTML=certificateHistory.items.map(item=>{
    const active=item.status!=='revoked',hasLink=Boolean(item.verificationUrl),code=html(item.publicCode||'—'),serial=item.serial?'N° '+html(item.serial):'N° non renseigné';
    const qr=hasLink?'<img data-certificate-qr="'+html(item.verificationUrl)+'" alt="QR de vérification pour '+html(item.name)+'">':'<span class="certificate-qr-unavailable">QR<br>indisponible</span>';
-   const actions=hasLink?'<button class="btn secondary small" type="button" data-certificate-copy="'+html(item.id)+'"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/></svg> Copier le lien</button><button class="btn primary small" type="button" data-certificate-open="'+html(item.id)+'">Ouvrir la vérification</button>':'<span class="certificate-record-note">Ancien enregistrement : réexportez ce certificat pour créer un lien récupérable.</span>';
+   const linkActions=hasLink?'<button class="btn secondary small" type="button" data-certificate-copy="'+html(item.id)+'"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/></svg> Copier le lien</button><button class="btn primary small" type="button" data-certificate-open="'+html(item.id)+'">Ouvrir la vérification</button>':'<span class="certificate-record-note">Ancien enregistrement : réexportez ce certificat pour créer un lien récupérable.</span>';
+   const management=(active?'<button class="btn secondary small" type="button" data-certificate-revoke="'+html(item.id)+'">Révoquer</button>':'')+'<button class="btn danger small" type="button" data-certificate-delete="'+html(item.id)+'">Supprimer</button>';
+   const actions=linkActions+management;
    return '<article class="certificate-record '+(active?'is-active':'is-revoked')+'"><div class="certificate-record-qr">'+qr+'</div><div class="certificate-record-main"><div class="certificate-record-top"><span class="certificate-status '+(active?'active':'revoked')+'"><span></span>'+certificateStatusLabel(item.status)+'</span><time datetime="'+html(item.issuedAt||'')+'">'+certificateDate(item.issuedAt)+'</time></div><h3>'+html(item.name||'Sans nom')+'</h3><div class="certificate-record-meta"><span>'+html(item.belt||'Ceinture non renseignée')+'</span><span>'+serial+'</span></div><div class="certificate-code-row"><span>Code QR</span><code>'+code+'</code></div><div class="certificate-record-actions">'+actions+'</div></div></article>';
   }).join('');
   root.querySelectorAll('img[data-certificate-qr]').forEach(image=>renderQrImage(image,{qrErrorCorrection:'H',qrMargin:2,qrDark:'#0f172a',qrLight:'#ffffff'},image.dataset.certificateQr));
@@ -815,6 +817,13 @@ function bindGlobal(){
   try{await navigator.clipboard.writeText(item.verificationUrl);showToast('Lien de vérification copié')}catch{showToast('Copie impossible. Ouvrez la vérification puis copiez son adresse.',true)}
  }
  function openCertificateLink(id){const item=certificateHistory.items.find(record=>record.id===id);if(item?.verificationUrl)window.open(item.verificationUrl,'_blank','noopener,noreferrer');else showToast('Lien de vérification indisponible pour cet ancien certificat.',true)}
+ async function mutateCertificate(id,action){
+  const item=certificateHistory.items.find(record=>record.id===id);if(!item)return;
+  const revoke=action==='revoke';
+  const confirmed=await askConfirm(revoke?'Révoquer ce certificat ? Le QR restera visible dans l’historique, mais sa page publique indiquera qu’il n’est plus valide.':'Supprimer définitivement ce certificat ? Son lien public cessera de fonctionner et cette action est irréversible.',{title:revoke?'Révoquer le certificat':'Supprimer le certificat',confirmLabel:revoke?'Révoquer':'Supprimer',danger:true});
+  if(!confirmed)return;
+  try{await backendRequest('/certificates/issue?id='+encodeURIComponent(id),{method:revoke?'PATCH':'DELETE'});showToast(revoke?'Certificat révoqué.':'Certificat supprimé.');certificateHistory.page=1;await loadCertificateHistory({silent:true})}catch(error){showToast((revoke?'Révocation':'Suppression')+' impossible : '+error.message,true)}
+ }
  function bindCertificateHistory(){
   const search=$('#certificate-search'),status=$('#certificate-status'),refresh=$('#btn-refresh-certificates'),prev=$('#certificate-prev'),next=$('#certificate-next'),root=$('#certificate-list');
   if(!search||search.dataset.bound)return;
@@ -824,7 +833,7 @@ function bindGlobal(){
   refresh.onclick=()=>void loadCertificateHistory();
   prev.onclick=()=>{if(certificateHistory.page>1){certificateHistory.page-=1;void loadCertificateHistory()}};
   next.onclick=()=>{const pages=Math.max(1,Math.ceil(certificateHistory.total/certificateHistory.pageSize));if(certificateHistory.page<pages){certificateHistory.page+=1;void loadCertificateHistory()}};
-  root.onclick=event=>{const copy=event.target.closest('[data-certificate-copy]'),open=event.target.closest('[data-certificate-open]'),nav=event.target.closest('[data-nav]');if(copy)void copyCertificateLink(copy.dataset.certificateCopy);else if(open)openCertificateLink(open.dataset.certificateOpen);else if(nav)setPage(nav.dataset.nav)};
+  root.onclick=event=>{const copy=event.target.closest('[data-certificate-copy]'),open=event.target.closest('[data-certificate-open]'),revoke=event.target.closest('[data-certificate-revoke]'),remove=event.target.closest('[data-certificate-delete]'),nav=event.target.closest('[data-nav]');if(copy)void copyCertificateLink(copy.dataset.certificateCopy);else if(open)openCertificateLink(open.dataset.certificateOpen);else if(revoke)void mutateCertificate(revoke.dataset.certificateRevoke,'revoke');else if(remove)void mutateCertificate(remove.dataset.certificateDelete,'delete');else if(nav)setPage(nav.dataset.nav)};
  }
  const originalSetPageWithCertificates=setPage;
  setPage=(page)=>{
