@@ -427,20 +427,57 @@ async function findCertificateByToken(token) {
   return data || null;
 }
 
+function certificatePreviewPublicId(certificateId) {
+  const safeId = String(certificateId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+  return safeId ? `certificate-${safeId}` : `certificate-${crypto.randomUUID()}`;
+}
+
+function retryableCloudinaryError(error) {
+  const status = Number(error?.http_code || error?.statusCode || 0);
+  return [408, 425, 429].includes(status) || status >= 500 || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(error?.code);
+}
+
+function wait(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function uploadCertificatePreviewToCloudinary(file, certificateId, workspaceId) {
+  const folder = `budo-studio/certificates/${String(workspaceId || 'default').replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  const options = {
+    public_id: certificatePreviewPublicId(certificateId),
+    overwrite: true,
+    invalidate: true,
+    format: 'jpg',
+  };
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await uploadToCloudinary(file, folder, options);
+    } catch (error) {
+      lastError = error;
+      if (!retryableCloudinaryError(error) || attempt === 1) break;
+      await wait(250);
+    }
+  }
+  throw lastError || new Error('Cloudinary preview upload failed.');
+}
+
 async function saveCertificatePreview(request, certificateId) {
   if (!request.file) throw authError('Attach the generated certificate preview as the file field.', 400);
   if (!hasCloudinary) throw authError('Cloudinary is not configured for certificate previews.', 503);
   const workspaceId = await workspaceOf(request);
-  const result = await uploadToCloudinary(request.file, `budo-studio/certificates/${workspaceId}`);
+  const result = await uploadCertificatePreviewToCloudinary(request.file, certificateId, workspaceId);
+  const previewUrl = result.secure_url || result.url || '';
+  if (!previewUrl) throw authError('Cloudinary did not return a public preview URL.', 502);
   if (supabase) {
-    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: result.secure_url }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
+    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: previewUrl }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
     if (error) throw error;
     if (!data) throw authError('Issued certificate not found.', 404);
     return publicCertificate(data);
   }
   const record = [...memory.certificates.values()].find(item => item.id === certificateId && item.workspace_id === workspaceId);
   if (!record) throw authError('Issued certificate not found.', 404);
-  record.preview_url = result.secure_url;
+  record.preview_url = previewUrl;
   return publicCertificate(record);
 }
 
@@ -739,13 +776,18 @@ async function saveBelt(request, body) {
   return normalized;
 }
 
-function uploadToCloudinary(file, folder) {
+function uploadToCloudinary(file, folder, options = {}) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image', use_filename: true, unique_filename: true, overwrite: false },
+      { folder, resource_type: 'image', use_filename: true, unique_filename: true, overwrite: false, ...options },
       (error, result) => (error ? reject(error) : resolve(result)),
     );
-    stream.end(file.buffer);
+    stream.on('error', reject);
+    try {
+      stream.end(file.buffer);
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 
