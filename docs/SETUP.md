@@ -19,7 +19,7 @@ Open `http://localhost:8787/`. This is the single main BUDO Studio app containin
 6. Check `http://localhost:8787/api/health` and verify `schemaReady` and `certificatesReady` are `true`.
 7. Sign in through the BUDO Studio connection dialog, then use **Enregistrer tout** to sync candidates and the active template preset.
 
-QR verification requires `certificates.sql`. Generated certificate previews are uploaded to Cloudinary when Cloudinary is configured; without it, the public verification page still shows the verified certificate details but no image preview.
+QR verification requires the current `certificates.sql` (including the `issue_key` column). Re-exporting the same candidate with the same data and template reuses the same QR token; changing the certificate data or template creates a new issuance. Generated certificate previews are uploaded to Cloudinary; without Cloudinary, verification still works but the public page cannot show the rendered certificate image.
 
 The server uses the server-only `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`). Never put either key in frontend files. The browser only receives the Supabase publishable key.
 
@@ -31,7 +31,7 @@ During the import preview, the **N° officiel · رقم تسلسلي** column is
 
 - Cloudinary stores imported certificate backgrounds, including original PDF uploads, and candidate source images uploaded for OCR.
 - Gemini is used only when the user explicitly requests brainstorming or OCR.
-- PDF and ZIP exports are generated in the browser. Final generated files are never sent to Express, Supabase, Cloudinary, or Gemini.
+- PDF and ZIP exports are generated in the browser. The final export files are never sent to Express, Supabase, Cloudinary, or Gemini; a separate rendered JPG preview is uploaded only when a public verification certificate is issued.
 
 ## Troubleshooting
 

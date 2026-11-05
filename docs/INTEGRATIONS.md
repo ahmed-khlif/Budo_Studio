@@ -10,6 +10,8 @@ The application runs locally with an in-memory adapter, but production mode shou
 4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `frontend/.env.local` (the legacy `VITE_SUPABASE_ANON_KEY` name is also supported). The React auth gate shows a dedicated login page before the main BUDO Studio editor can mount.
 5. Keep `REQUIRE_AUTH=true` in production so the API also rejects requests without a valid Supabase session. Local development may use `REQUIRE_AUTH=false` only when testing the API without authentication.
 
+Run [`../supabase/certificates.sql`](../supabase/certificates.sql) after the base schema. It adds the stable certificate issue key used to keep the same candidate/template QR code unchanged across repeated exports and devices.
+
 For administrator access, set `ADMIN_EMAILS=admin@example.com` as a temporary server-only bootstrap allowlist, or set the user’s trusted Supabase `app_metadata.role` to `admin`. The API exposes `/api/admin/access`, `/api/admin/users`, and `PUT /api/admin/users/:id/role`. Do not use editable `user_metadata` for authorization.
 
 The service-role key remains server-only. The React bundle receives only the publishable/anon key and uses Supabase Auth plus Realtime.
@@ -18,7 +20,9 @@ This is a Vite/React client, so the Next.js `page.tsx`, cookie server client, an
 
 ## Cloudinary
 
-Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the server `.env`. Template backgrounds and candidate source images are uploaded through Express; the final PDF/ZIP never passes through Cloudinary.
+Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the server `.env`. Template backgrounds, candidate source images, and generated public certificate preview images are uploaded through Express; the final PDF/ZIP itself never passes through Cloudinary.
+
+Set a dedicated random `CERTIFICATE_TOKEN_SECRET` in production. It keeps deterministic QR tokens private and stable; the server-only Supabase key remains a backward-compatible fallback.
 
 ## Gemini
 

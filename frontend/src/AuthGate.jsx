@@ -170,6 +170,26 @@ function certificateTokenFromLocation() {
   return hashMatch?.[1] || '';
 }
 
+function CertificatePreview({ certificate }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [certificate.id, certificate.previewUrl]);
+
+  if (!certificate.previewUrl || failed) {
+    return <div className="public-certificate-preview-placeholder">
+      <span>{failed ? 'APERÇU TEMPORAIREMENT INDISPONIBLE' : 'APERÇU DU CERTIFICAT EN PRÉPARATION'}</span>
+      <small>{failed ? 'Le certificat reste vérifiable. Réessayez dans quelques instants.' : 'L’organisation émettrice termine la génération de l’image du certificat.'}</small>
+    </div>;
+  }
+
+  return <figure className="public-certificate-preview-figure">
+    <img className="public-certificate-preview" src={certificate.previewUrl} alt={`Aperçu du certificat de ${certificate.name}`} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+    <figcaption>Aperçu généré depuis le modèle officiel avec les données émises.</figcaption>
+  </figure>;
+}
+
 function PublicCertificatePage({ token }) {
   const [state, setState] = useState({ status: 'loading', certificate: null, error: '' });
 
@@ -195,7 +215,7 @@ function PublicCertificatePage({ token }) {
       {state.status === 'ready' && certificate && <>
         <div className={`public-certificate-status ${certificate.status === 'active' ? 'active' : 'revoked'}`}><Icon name={certificate.status === 'active' ? 'check' : 'alert'} size={18} /><span>{certificate.status === 'active' ? 'Certificat vérifié' : 'Certificat révoqué'}</span></div>
         <div className="public-certificate-heading"><span className="auth-eyebrow">CERTIFICAT OFFICIEL</span><h1 id="public-certificate-title">{certificate.name}</h1><p>{certificate.belt || 'Grade non renseigné'}{certificate.kyu ? ` · ${certificate.kyu}ème Kyu` : ''}</p></div>
-        {certificate.previewUrl ? <img className="public-certificate-preview" src={certificate.previewUrl} alt={`Aperçu du certificat de ${certificate.name}`} /> : <div className="public-certificate-preview-placeholder"><span>APERÇU DU CERTIFICAT</span><small>Le document original est conservé par l’organisation émettrice.</small></div>}
+        <CertificatePreview certificate={certificate} />
         <dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl>
         <p className="public-certificate-note">Ce certificat a été émis et peut être vérifié via BUDO Studio. Les informations personnelles non nécessaires ne sont pas affichées publiquement.</p>
       </>}

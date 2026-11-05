@@ -191,12 +191,51 @@ function cleanNullable(value) {
   return text || null;
 }
 
-function certificateToken() {
-  return crypto.randomBytes(32).toString('base64url');
+function certificateTokenSecret() {
+  // Keep the token derivation stable across serverless invocations. The secret
+  // must never be exposed to the browser; the Supabase service key is only a
+  // fallback for existing deployments that have not added a dedicated secret.
+  return String(process.env.CERTIFICATE_TOKEN_SECRET || supabaseServerKey || 'budo-studio-development-token-secret').trim();
+}
+
+function certificateToken(issueKey = '') {
+  if (!issueKey) return crypto.randomBytes(32).toString('base64url');
+  return crypto.createHmac('sha256', certificateTokenSecret()).update(issueKey).digest('base64url');
 }
 
 function certificateTokenHash(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function stableJson(value) {
+  if (value === undefined || value === null) return 'null';
+  if (typeof value === 'number' && !Number.isFinite(value)) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+}
+
+function certificateIdentity(parsed) {
+  const metadataIdentity = parsed.metadata && typeof parsed.metadata.certificateIdentity === 'string'
+    ? parsed.metadata.certificateIdentity.trim()
+    : '';
+  return String(metadataIdentity || parsed.candidateId || parsed.clientId || '').trim().slice(0, 120);
+}
+
+function certificateIssueKey(workspaceId, parsed) {
+  const identity = certificateIdentity(parsed);
+  if (!identity) return null;
+  return crypto.createHash('sha256').update(stableJson({
+    workspaceId,
+    identity,
+    name: parsed.name.trim(),
+    belt: parsed.belt || '',
+    kyu: parsed.kyu ?? null,
+    examDate: parsed.examDate || '',
+    obtained: parsed.obtained || '',
+    serial: parsed.serial || '',
+    templateSnapshot: parsed.templateSnapshot || {},
+  })).digest('hex');
 }
 
 function publicAppUrl(request) {
@@ -234,14 +273,46 @@ async function issueCertificates(request, body) {
   if (input.length > 4000) throw authError('A certificate issue request cannot contain more than 4000 items.', 413);
   const workspaceId = await workspaceOf(request);
   const user = await authenticatedUser(request);
-  const issued = input.map(item => {
-    const parsed = certificateIssueSchema.parse(item);
-    const token = certificateToken();
-    const timestamp = now();
-    return {
+  const parsedItems = input.map(item => certificateIssueSchema.parse(item));
+  const prepared = parsedItems.map((parsed) => ({
+    parsed,
+    issueKey: certificateIssueKey(workspaceId, parsed),
+  }));
+  const issueKeys = [...new Set(prepared.map(item => item.issueKey).filter(Boolean))];
+  const existingByIssueKey = new Map();
+
+  if (issueKeys.length && supabase) {
+    const { data, error } = await supabase.from('issued_certificates')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'active')
+      .in('issue_key', issueKeys);
+    if (error) {
+      if (error.code === 'PGRST204' || error.code === '42703') {
+        throw authError('Run the updated supabase/certificates.sql to enable stable certificate QR codes.', 503);
+      }
+      throw error;
+    }
+    for (const record of data || []) existingByIssueKey.set(record.issue_key, record);
+  } else if (issueKeys.length) {
+    for (const record of memory.certificates.values()) {
+      if (record.workspace_id === workspaceId && record.status === 'active' && record.issue_key && issueKeys.includes(record.issue_key)) {
+        existingByIssueKey.set(record.issue_key, record);
+      }
+    }
+  }
+
+  const recordsToInsert = [];
+  const insertedByIssueKey = new Map();
+  const timestamp = now();
+  for (const { parsed, issueKey } of prepared) {
+    if (issueKey && (existingByIssueKey.has(issueKey) || insertedByIssueKey.has(issueKey))) continue;
+    const token = certificateToken(issueKey);
+    const record = {
       id: id(),
       clientId: parsed.clientId || null,
       token,
+      issue_key: issueKey,
       workspace_id: workspaceId,
       candidate_id: parsed.candidateId || null,
       token_hash: certificateTokenHash(token),
@@ -261,21 +332,50 @@ async function issueCertificates(request, body) {
       created_at: timestamp,
       updated_at: timestamp,
     };
-  });
-  if (supabase) {
-    const { data, error } = await supabase.from('issued_certificates').insert(issued.map(({ token, clientId, ...record }) => record)).select('*');
+    recordsToInsert.push(record);
+    if (issueKey) insertedByIssueKey.set(issueKey, record);
+  }
+
+  if (supabase && recordsToInsert.length) {
+    const { data, error } = await supabase.from('issued_certificates')
+      .insert(recordsToInsert.map(({ token, clientId, ...record }) => record))
+      .select('*');
     if (error) {
       if (error.code === 'PGRST205') throw authError('Run supabase/certificates.sql in the connected project to enable QR verification.', 503);
-      throw error;
+      // Two browser tabs can issue the same certificate at the same moment.
+      // The unique issue key makes that safe; return the winner instead of
+      // surfacing a duplicate-row error to the user.
+      if (error.code === '23505' && issueKeys.length) {
+        const { data: winners, error: winnerError } = await supabase.from('issued_certificates')
+          .select('*')
+          .eq('workspace_id', workspaceId)
+          .eq('status', 'active')
+          .in('issue_key', issueKeys);
+        if (winnerError) throw winnerError;
+        for (const record of winners || []) existingByIssueKey.set(record.issue_key, record);
+      } else throw error;
+    } else {
+      for (const record of data || []) {
+        if (record.issue_key) insertedByIssueKey.set(record.issue_key, { ...record, token: certificateToken(record.issue_key) });
+      }
     }
-    const byId = new Map((data || []).map(record => [record.id, record]));
-    return issued.map(record => {
-      const saved = byId.get(record.id) || record;
-      return { ...publicCertificate(saved), clientId: record.clientId, verificationToken: record.token, verificationUrl: `${publicAppUrl(request)}/?certificate=${encodeURIComponent(record.token)}` };
-    });
+  } else if (!supabase) {
+    for (const record of recordsToInsert) memory.certificates.set(record.token_hash, record);
   }
-  issued.forEach(record => memory.certificates.set(record.token_hash, record));
-  return issued.map(record => ({ ...publicCertificate(record), clientId: record.clientId, verificationToken: record.token, verificationUrl: `${publicAppUrl(request)}/?certificate=${encodeURIComponent(record.token)}` }));
+
+  return prepared.map(({ parsed, issueKey }) => {
+    const saved = (issueKey && (existingByIssueKey.get(issueKey) || insertedByIssueKey.get(issueKey)))
+      || recordsToInsert.find(record => record.clientId === (parsed.clientId || null))
+      || null;
+    if (!saved) throw authError('Certificate issuance could not be completed. Please try again.', 500);
+    const token = issueKey ? certificateToken(issueKey) : saved.token;
+    return {
+      ...publicCertificate(saved),
+      clientId: parsed.clientId || null,
+      verificationToken: token,
+      verificationUrl: `${publicAppUrl(request)}/?certificate=${encodeURIComponent(token)}`,
+    };
+  });
 }
 
 async function findCertificateByToken(token) {
@@ -676,6 +776,7 @@ async function generateText(contents, config = {}) {
 app.get('/api/health', async (_request, response) => {
   let schemaReady = !supabase;
   let certificatesReady = !supabase;
+  let certificatesError = null;
   let schemaError = null;
   let preferencesReady = !supabase;
   if (supabase) {
@@ -683,10 +784,13 @@ app.get('/api/health', async (_request, response) => {
       supabase.from('candidates').select('id').limit(1),
       supabase.from('template_presets').select('id').limit(1),
       supabase.from('template_assets').select('id,preview_url,resource_type,mime_type').limit(1),
-      supabase.from('issued_certificates').select('id').limit(1),
+      supabase.from('issued_certificates').select('id,issue_key').limit(1),
     ]);
     const error = checks.slice(0, 3).map((result) => result.error).find(Boolean);
     certificatesReady = !checks[3].error;
+    certificatesError = checks[3].error?.code === 'PGRST204' || checks[3].error?.code === '42703'
+      ? 'Run the updated supabase/certificates.sql to enable stable certificate QR codes.'
+      : (checks[3].error?.message || null);
     const preferencesCheck = await supabase.from('workspace_preferences').select('workspace_id').limit(1);
     preferencesReady = !preferencesCheck.error;
     schemaReady = !error;
@@ -699,6 +803,7 @@ app.get('/api/health', async (_request, response) => {
     schemaReady,
     schemaError,
     certificatesReady,
+    certificatesError,
     authRequired: requireAuth,
     workspaceMode: sharedWorkspaceId ? 'shared' : 'account',
     cloudinary: hasCloudinary,

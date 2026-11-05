@@ -572,18 +572,26 @@ async function renderPdfCandidate(candidate,scale=2.7){const template=state.temp
 }
 function checkFonts(candidates){const faces=[...document.fonts];const used=new Set(candidates.flatMap(c=>(state.layouts[c.belt]||[]).filter(f=>f.visible).map(f=>f.family)));const loaded=(family,weight='400')=>document.fonts.check(`${weight} 38px "${fontFamily(family)}"`)||faces.some(f=>f.family.replace(/["']/g,'')===fontFamily(family)&&f.status==='loaded');const missing=[];if(used.has('Mirza')&&!loaded('Mirza'))missing.push('Mirza Regular non chargée');if(used.has('MirzaImported')&&!loaded('MirzaImported'))missing.push('Police importée manquante (recharger le fichier)');if(used.has('Amiri')&&!loaded('Amiri'))missing.push('Amiri indisponible');return missing}
 async function issueVerificationTokens(candidates){
- const needs=candidates.filter(candidate=>!candidate.verificationToken&&(state.layouts[candidate.belt]||[]).some(field=>field.visible&&isQrField(field)));
+ // Ask the API on every export. The API is idempotent for an unchanged
+ // candidate/template and creates a new version only when the certificate
+ // contents or its layout really changed.
+ const needs=candidates.filter(candidate=>(state.layouts[candidate.belt]||[]).some(field=>field.visible&&isQrField(field)));
  if(!needs.length)return;
  if(!backendApiReady)throw Error('Connectez le studio au backend pour publier les liens de vérification QR.');
- const response=await backendRequest('/certificates/issue',{method:'POST',body:JSON.stringify({certificates:needs.map(candidate=>({clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],state.templates[candidate.belt]?.remoteUrl||'')}))})});
+ const response=await backendRequest('/certificates/issue',{method:'POST',body:JSON.stringify({certificates:needs.map(candidate=>{
+   const certificateIdentity=String(candidate.metadata?.certificateIdentity||candidate.id);
+   candidate.metadata={...(candidate.metadata||{}),certificateIdentity};
+   return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],state.templates[candidate.belt]?.remoteUrl||''),metadata:candidate.metadata};
+  })})});
  const byClient=new Map((response.data||[]).map(item=>[item.clientId,item]));
- needs.forEach(candidate=>{const issued=byClient.get(candidate.id);if(issued){candidate.verificationToken=issued.verificationToken;candidate.verificationUrl=issued.verificationUrl;candidate.issuedCertificateId=issued.id;candidate.verificationCode=issued.publicCode}});if(needs.length)persist();
+ needs.forEach(candidate=>{const issued=byClient.get(candidate.id);if(issued){candidate.verificationToken=issued.verificationToken;candidate.verificationUrl=issued.verificationUrl;candidate.issuedCertificateId=issued.id;candidate.verificationCode=issued.publicCode;candidate.certificatePreviewUrl=issued.previewUrl||candidate.certificatePreviewUrl||''}});if(needs.length)persist();
 }
 const originalGenerateExport=generateExport;
-async function uploadCertificatePreview(candidate,page){if(!candidate?.issuedCertificateId||!page?.previewDataUrl||!backendApiReady)return;try{const blob=await (await fetch(page.previewDataUrl)).blob(),form=new FormData();form.append('file',blob,`certificate-${candidate.serial||candidate.id}.jpg`);await backendRequest(`/certificates/${encodeURIComponent(candidate.issuedCertificateId)}/preview`,{method:'POST',body:form})}catch(error){debugLog('Certificate preview upload failed',error)}}
+ const certificatePreviewFailures=new Set();
+ async function uploadCertificatePreview(candidate,page){if(!candidate?.issuedCertificateId||!page?.previewDataUrl||!backendApiReady)return false;try{const blob=await (await fetch(page.previewDataUrl)).blob(),form=new FormData();form.append('file',blob,`certificate-${candidate.serial||candidate.id}.jpg`);const saved=await backendRequest(`/certificates/${encodeURIComponent(candidate.issuedCertificateId)}/preview`,{method:'POST',body:form});if(!saved?.previewUrl)throw Error('Le serveur n’a pas retourné l’image de prévisualisation.');return true}catch(error){certificatePreviewFailures.add(error.message||'Erreur inconnue');debugLog('Certificate preview upload failed',error);return false}}
 const originalRenderPdfCandidate=renderPdfCandidate;
 renderPdfCandidate=async(candidate,...args)=>{const page=await originalRenderPdfCandidate(candidate,...args);await uploadCertificatePreview(candidate,page);return page};
-generateExport=async()=>{const scope=$('input[name="export-scope"]:checked')?.value,list=scope==='selected'?selectedCandidates():scope==='filtered'?filteredCandidates():scope==='belt'?state.candidates.filter(c=>c.belt===state.belt):state.candidates;try{await issueVerificationTokens(list);return originalGenerateExport()}catch(error){showToast(error.message,true)}};
+ generateExport=async()=>{const scope=$('input[name="export-scope"]:checked')?.value,list=scope==='selected'?selectedCandidates():scope==='filtered'?filteredCandidates():scope==='belt'?state.candidates.filter(c=>c.belt===state.belt):state.candidates;certificatePreviewFailures.clear();try{await issueVerificationTokens(list);const result=await originalGenerateExport();if(certificatePreviewFailures.size)showToast('PDF généré, mais l’aperçu public n’a pas pu être enregistré. Vérifiez Cloudinary puis réexportez.',true);return result}catch(error){showToast(error.message,true)}};
 async function ensureFonts(){try{await Promise.all([document.fonts.load('400 38px Mirza'),document.fonts.load('400 38px Amiri')])}catch{}await document.fonts.ready}
 function exportDialog(){
  const selected=selectedCandidates();const filtered=filteredCandidates();const belt=state.candidates.filter(c=>c.belt===state.belt);

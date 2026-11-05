@@ -9,6 +9,9 @@ create table if not exists public.issued_certificates (
   id uuid primary key default gen_random_uuid(),
   workspace_id text not null,
   candidate_id text,
+  -- Stable server-generated identity for the same candidate/data/template.
+  -- The raw QR token is still never stored.
+  issue_key text,
   token_hash text not null unique,
   public_code text not null unique,
   name text not null,
@@ -28,6 +31,9 @@ create table if not exists public.issued_certificates (
   updated_at timestamptz not null default now()
 );
 
+alter table public.issued_certificates
+  add column if not exists issue_key text;
+
 create index if not exists issued_certificates_workspace_issued_idx
   on public.issued_certificates (workspace_id, issued_at desc);
 
@@ -37,6 +43,10 @@ create index if not exists issued_certificates_workspace_candidate_idx
 create index if not exists issued_certificates_active_idx
   on public.issued_certificates (workspace_id, status)
   where status = 'active';
+
+create unique index if not exists issued_certificates_active_issue_key_uidx
+  on public.issued_certificates (workspace_id, issue_key)
+  where status = 'active' and issue_key is not null;
 
 grant usage on schema public to service_role;
 grant select, insert, update on public.issued_certificates to service_role;
