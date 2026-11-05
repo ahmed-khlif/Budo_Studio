@@ -756,13 +756,25 @@ app.put('/api/admin/users/:id/role', async (request, response, next) => {
   }
 });
 
+async function respondWithCertificateVerification(request, response) {
+  const token = String(request.params.token || request.query.token || '').trim();
+  if (!/^[A-Za-z0-9_-]{32,100}$/.test(token)) return response.status(404).json({ error: 'Certificate not found.' });
+  const certificate = await findCertificateByToken(token);
+  if (!certificate) return response.status(404).json({ error: 'Certificate not found.' });
+  return response.json(publicCertificate(certificate));
+}
+
+app.get('/api/verify', async (request, response, next) => {
+  try {
+    await respondWithCertificateVerification(request, response);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/verify/:token', async (request, response, next) => {
   try {
-    const token = String(request.params.token || '').trim();
-    if (!/^[A-Za-z0-9_-]{32,100}$/.test(token)) return response.status(404).json({ error: 'Certificate not found.' });
-    const certificate = await findCertificateByToken(token);
-    if (!certificate) return response.status(404).json({ error: 'Certificate not found.' });
-    response.json(publicCertificate(certificate));
+    await respondWithCertificateVerification(request, response);
   } catch (error) {
     next(error);
   }
