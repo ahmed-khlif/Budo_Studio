@@ -254,9 +254,13 @@ function publicAppUrl(request) {
 function publicTemplateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const requestedBackground = String(snapshot.backgroundUrl || '').trim();
-  const backgroundUrl = /^(?:https:\/\/res\.cloudinary\.com\/|\/|assets\/)/i.test(requestedBackground)
-    ? (requestedBackground.startsWith('assets/') ? `/${requestedBackground}` : requestedBackground)
-    : '';
+  const allowedBackground = /^(?:https:\/\/res\.cloudinary\.com\/|\/|assets\/)/i.test(requestedBackground);
+  const cloudinaryPdf = /^https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\//i.test(requestedBackground) && /\.pdf(?:\?.*)?$/i.test(requestedBackground);
+  const backgroundUrl = !allowedBackground
+    ? ''
+    : cloudinaryPdf
+      ? requestedBackground.replace('/image/upload/', '/image/upload/pg_1/c_fit,h_2811,w_1938/').replace(/\.pdf(?:\?.*)?$/i, '.png')
+      : (requestedBackground.startsWith('assets/') ? '/' + requestedBackground : requestedBackground);
   const size = snapshot.size && typeof snapshot.size === 'object'
     ? { width: Number(snapshot.size.width) || 645.75, height: Number(snapshot.size.height) || 936.75 }
     : { width: 645.75, height: 936.75 };

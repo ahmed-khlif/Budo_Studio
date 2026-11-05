@@ -102,7 +102,7 @@ let fabricCanvas=null, fabricHost=null, fabricMode=false, fabricPreferred=false,
 
 function candidateFingerprint(list=state.candidates){return JSON.stringify(list.filter(candidate=>!candidate.demo).map(candidate=>({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal)})))}
 function candidateRecordFingerprint(candidate){return JSON.stringify({...candidate,serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),status:candidateErrors(candidate).length?'incomplete':'ready'})}
-function templateConfig(beltId,fields=state.layouts[beltId]||[],backgroundUrl=state.templates[beltId]?.remoteUrl||''){const size=normalizedPageSize(state.pageSizes[beltId]||{width:DEFAULT_W,height:DEFAULT_H});return {version:3,belt:beltId,beltMeta:customBeltMetadata(beltId),size,fields,backgroundUrl}}
+function templateConfig(beltId,fields=state.layouts[beltId]||[],backgroundUrl=state.templates[beltId]?.previewUrl||state.templates[beltId]?.remoteUrl||''){const size=normalizedPageSize(state.pageSizes[beltId]||{width:DEFAULT_W,height:DEFAULT_H});return {version:3,belt:beltId,beltMeta:customBeltMetadata(beltId),size,fields,backgroundUrl}}
 function templateFingerprint(config={}){return JSON.stringify({version:3,belt:config.belt||'',beltMeta:config.beltMeta||null,size:normalizedPageSize(config.size||{width:DEFAULT_W,height:DEFAULT_H}),fields:Array.isArray(config.fields)?config.fields:[],backgroundUrl:config.backgroundUrl||''})}
 function preferenceConfig(){return {snap:state.snap,guides:state.guides,grid:state.grid,fabricMode:fabricPreferred,localDataMigrated:true,customBelts:BELTS.filter(belt=>belt.custom).map(belt=>({id:belt.id,name:belt.id,swatches:[...belt.swatches],kyu:belt.kyu??null}))}}
 function preferenceFingerprint(config=preferenceConfig()){return JSON.stringify(config)}
@@ -221,7 +221,7 @@ async function syncBackend(){
    debugLog('Preferences saved', {customBelts:nextPreferences.customBelts.length});
   }
   for(const belt of BELTS){
-   const beltId=belt.id,template=state.templates[beltId],config=templateConfig(beltId,layoutSnapshot[beltId],template?.remoteUrl||template?.src||''),fingerprint=templateFingerprint(config);
+   const beltId=belt.id,template=state.templates[beltId],config=templateConfig(beltId,layoutSnapshot[beltId],template?.previewUrl||template?.remoteUrl||template?.src||''),fingerprint=templateFingerprint(config);
    const existingId=backendPresetIds.get(beltId);
     if(!existingId&&!config.backgroundUrl&&!customBeltMetadata(beltId)&&JSON.stringify(config.fields)===JSON.stringify(DEFAULT_FIELDS)&&config.size.width===DEFAULT_W&&config.size.height===DEFAULT_H)continue;
    if(existingId&&backendPresetFingerprints.get(beltId)===fingerprint){debugLog('Template unchanged', {belt:beltId});continue}
@@ -595,7 +595,7 @@ async function issueVerificationTokens(candidates){
    const certificateIdentity=String(candidate.metadata?.certificateIdentity||candidate.id);
    candidate.metadata={...(candidate.metadata||{}),certificateIdentity};
    const template=state.templates[candidate.belt];
-   return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],template?.remoteUrl||template?.src||''),metadata:candidate.metadata};
+   return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],template?.previewUrl||template?.remoteUrl||template?.src||''),metadata:candidate.metadata};
   })})});
  const byClient=new Map((response.data||[]).map(item=>[item.clientId,item]));
  needs.forEach(candidate=>{const issued=byClient.get(candidate.id);if(issued){candidate.verificationToken=issued.verificationToken;candidate.verificationUrl=issued.verificationUrl;candidate.issuedCertificateId=issued.id;candidate.verificationCode=issued.publicCode;candidate.certificatePreviewUrl=issued.previewUrl||candidate.certificatePreviewUrl||''}});if(needs.length)persist();
