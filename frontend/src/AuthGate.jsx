@@ -183,36 +183,15 @@ function certificateFieldValue(field, certificate) {
 }
 
 function CertificateSnapshotPreview({ certificate, snapshot }) {
-  const [qrSources, setQrSources] = useState({});
+  const [qrSource, setQrSource] = useState('');
 
   useEffect(() => {
     let active = true;
-    const qrFields = (snapshot?.fields || []).filter((field) => field.source === 'qr' || field.type === 'qr');
-    import('qrcode').then(async (module) => {
-      const qr = module.default || module;
-      const entries = await Promise.all(qrFields.map(async (field) => {
-        const matrix = qr.create(window.location.href, { errorCorrectionLevel: field.qrErrorCorrection || 'H' });
-        const margin = Math.min(8, Math.max(1, Number(field.qrMargin) || 2));
-        const modules = matrix.modules.size;
-        const cell = Math.max(2, Math.floor(320 / (modules + margin * 2)));
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = (modules + margin * 2) * cell;
-        const context = canvas.getContext('2d');
-        context.fillStyle = field.qrLight || '#ffffff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.fillStyle = field.qrDark || '#0f172a';
-        for (let row = 0; row < modules; row += 1) for (let column = 0; column < modules; column += 1) if (matrix.modules.get(row, column)) {
-          const x = (column + margin) * cell;
-          const y = (row + margin) * cell;
-          if (field.qrShape === 'dots') { context.beginPath(); context.arc(x + cell / 2, y + cell / 2, cell * .42, 0, Math.PI * 2); context.fill(); }
-          else context.fillRect(x, y, cell, cell);
-        }
-        return [field.id, canvas.toDataURL('image/png')];
-      }));
-      if (active) setQrSources(Object.fromEntries(entries));
-    }).catch(() => { if (active) setQrSources({}); });
+    import('qrcode').then((module) => (module.default || module).toDataURL(window.location.href, { errorCorrectionLevel: 'H', margin: 1, width: 320 }))
+      .then((source) => { if (active) setQrSource(source); })
+      .catch(() => { if (active) setQrSource(''); });
     return () => { active = false; };
-  }, [certificate.id, snapshot]);
+  }, [certificate.id]);
 
   if (!snapshot?.backgroundUrl) return null;
   const size = snapshot.size || { width: 645.75, height: 936.75 };
@@ -247,9 +226,7 @@ function CertificateSnapshotPreview({ certificate, snapshot }) {
               field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : '',
             ].filter(Boolean).join(', ') || 'none',
             textDecoration: field.underline ? 'underline' : 'none',
-            backgroundColor: isQr && field.qrFrame === 'rounded' ? (field.qrLight || '#ffffff') : undefined,
           };
-          const qrSource = qrSources[field.id] || '';
           return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
             {isQr ? <>{qrSource && <img src={qrSource} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}
           </div>;

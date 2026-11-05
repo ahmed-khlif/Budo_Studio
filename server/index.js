@@ -293,9 +293,6 @@ function publicTemplateSnapshot(snapshot) {
     underline: Boolean(field?.underline),
     qrFrame: field?.qrFrame || 'none',
     qrCaption: field?.qrCaption || '',
-    qrShape: field?.qrShape || 'square',
-    qrMargin: Number(field?.qrMargin) || 2,
-    qrErrorCorrection: field?.qrErrorCorrection || 'H',
     qrDark: field?.qrDark || '#0f172a',
     qrLight: field?.qrLight || '#ffffff',
   })).filter((field) => field.visible && field.id) : [];
@@ -440,7 +437,7 @@ async function issueCertificates(request, body) {
 async function findCertificateByToken(token) {
   const hash = certificateTokenHash(token);
   if (!supabase) return memory.certificates.get(hash) || null;
-  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,revoked_at,preview_url,template_snapshot,issued_at,created_at').eq('token_hash', hash).maybeSingle();
+  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').eq('token_hash', hash).maybeSingle();
   if (error) throw error;
   return data || null;
 }
@@ -502,7 +499,7 @@ async function saveCertificatePreview(request, certificateId) {
   const previewUrl = result.secure_url || result.url || '';
   if (!previewUrl) throw authError('Cloudinary did not return a public preview URL.', 502);
   if (supabase) {
-    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: previewUrl }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,revoked_at,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
+    const { data, error } = await supabase.from('issued_certificates').update({ preview_url: previewUrl }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
     if (error) throw error;
     if (!data) throw authError('Issued certificate not found in this workspace.', 404);
     return publicCertificate(data);
