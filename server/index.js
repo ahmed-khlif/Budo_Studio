@@ -201,7 +201,15 @@ function certificateTokenHash(token) {
 
 function publicAppUrl(request) {
   const protocol = String(request.get('x-forwarded-proto') || request.protocol).split(',')[0].trim();
-  return String(process.env.PUBLIC_APP_URL || `${protocol}://${request.get('host')}`).replace(/\/$/, '');
+  const configured = String(process.env.PUBLIC_APP_URL || '').trim();
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // Fall back to the current request origin when the optional value is invalid.
+    }
+  }
+  return `${protocol}://${request.get('host')}`.replace(/\/$/, '');
 }
 
 function publicCertificate(record) {

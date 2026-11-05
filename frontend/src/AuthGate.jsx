@@ -5,6 +5,7 @@ import budoBrand from '../../budo_studio.png';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+const publicApiBase = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 function friendlyError(error) {
   const message = String(error?.message || error || 'Erreur inconnue.');
@@ -174,7 +175,7 @@ function PublicCertificatePage({ token }) {
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/verify/${encodeURIComponent(token)}`)
+    fetch(`${publicApiBase}/verify/${encodeURIComponent(token)}`)
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || 'Certificat introuvable.');
