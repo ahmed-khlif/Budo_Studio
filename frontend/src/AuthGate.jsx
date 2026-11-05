@@ -244,7 +244,10 @@ function CertificatePreview({ certificate }) {
     setFailed(false);
   }, [certificate.id, certificate.previewUrl]);
 
-  if ((!certificate.previewUrl || failed) && certificate.templateSnapshot?.backgroundUrl) {
+  // The saved template snapshot is the source of truth for this certificate.
+  // Prefer it over an older uploaded preview so QR dimensions cannot fall
+  // back to a previous export.
+  if (certificate.templateSnapshot?.backgroundUrl) {
     return <CertificateSnapshotPreview certificate={certificate} snapshot={certificate.templateSnapshot} />;
   }
 
