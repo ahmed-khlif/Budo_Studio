@@ -463,20 +463,33 @@ async function uploadCertificatePreviewToCloudinary(file, certificateId, workspa
 }
 
 async function saveCertificatePreview(request, certificateId) {
+  const workspaceId = await workspaceOf(request);
   if (!request.file) throw authError('Attach the generated certificate preview as the file field.', 400);
   if (!hasCloudinary) throw authError('Cloudinary is not configured for certificate previews.', 503);
-  const workspaceId = await workspaceOf(request);
+
+  if (supabase) {
+    const { data: existing, error } = await supabase.from('issued_certificates')
+      .select('id')
+      .eq('id', certificateId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!existing) throw authError('Issued certificate not found in this workspace.', 404);
+  } else {
+    const existing = [...memory.certificates.values()].find(item => item.id === certificateId && item.workspace_id === workspaceId);
+    if (!existing) throw authError('Issued certificate not found in this workspace.', 404);
+  }
+
   const result = await uploadCertificatePreviewToCloudinary(request.file, certificateId, workspaceId);
   const previewUrl = result.secure_url || result.url || '';
   if (!previewUrl) throw authError('Cloudinary did not return a public preview URL.', 502);
   if (supabase) {
     const { data, error } = await supabase.from('issued_certificates').update({ preview_url: previewUrl }).eq('id', certificateId).eq('workspace_id', workspaceId).select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').maybeSingle();
     if (error) throw error;
-    if (!data) throw authError('Issued certificate not found.', 404);
+    if (!data) throw authError('Issued certificate not found in this workspace.', 404);
     return publicCertificate(data);
   }
   const record = [...memory.certificates.values()].find(item => item.id === certificateId && item.workspace_id === workspaceId);
-  if (!record) throw authError('Issued certificate not found.', 404);
   record.preview_url = previewUrl;
   return publicCertificate(record);
 }
