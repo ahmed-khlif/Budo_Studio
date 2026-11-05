@@ -584,6 +584,56 @@ async function listCandidates(request) {
   return { data: (data || []).map(candidateFromStorage), total: count || 0, page, pageSize };
 }
 
+function certificateListItem(record, request) {
+  const token = record.issue_key ? certificateToken(record.issue_key) : '';
+  return {
+    id: record.id,
+    publicCode: record.public_code,
+    name: record.name || '',
+    belt: record.belt || '',
+    kyu: record.kyu || null,
+    examDate: record.exam_date || '',
+    obtained: record.obtained || '',
+    serial: record.serial || '',
+    status: record.status || 'active',
+    hasPreview: Boolean(record.preview_url),
+    issuedAt: record.issued_at || record.created_at || null,
+    verificationUrl: token ? `${publicAppUrl(request)}/?certificate=${encodeURIComponent(token)}` : null,
+  };
+}
+
+async function listCertificates(request) {
+  const workspaceId = await workspaceOf(request);
+  const rawSearch = String(request.query.search || '').trim().slice(0, 80);
+  const search = rawSearch.replace(/[%,().]/g, ' ').replace(/\s+/g, ' ').trim();
+  const status = ['active', 'revoked'].includes(String(request.query.status || '').trim())
+    ? String(request.query.status).trim()
+    : '';
+  const page = Math.max(1, Number(request.query.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize || 20)));
+  const from = (page - 1) * pageSize;
+
+  if (!supabase) {
+    let rows = [...memory.certificates.values()].filter((row) => row.workspace_id === workspaceId);
+    if (search) rows = rows.filter((row) => `${row.name} ${row.public_code} ${row.serial}`.toLowerCase().includes(search.toLowerCase()));
+    if (status) rows = rows.filter((row) => row.status === status);
+    rows.sort((a, b) => String(b.issued_at || b.created_at).localeCompare(String(a.issued_at || a.created_at)));
+    return { data: rows.slice(from, from + pageSize).map((row) => certificateListItem(row, request)), total: rows.length, page, pageSize };
+  }
+
+  let query = supabase.from('issued_certificates')
+    .select('id,issue_key,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,issued_at,created_at', { count: 'exact' })
+    .eq('workspace_id', workspaceId);
+  if (search) query = query.or(`name.ilike.%${search}%,public_code.ilike.%${search}%,serial.ilike.%${search}%`);
+  if (status) query = query.eq('status', status);
+  const { data, count, error } = await query
+    .order('issued_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, from + pageSize - 1);
+  if (error) throw error;
+  return { data: (data || []).map((row) => certificateListItem(row, request)), total: count || 0, page, pageSize };
+}
+
 async function getCandidate(request, candidateId) {
   const workspaceId = await workspaceOf(request);
   if (!supabase) {
@@ -986,6 +1036,14 @@ app.get('/api/verify', async (request, response, next) => {
 app.get('/api/verify/:token', async (request, response, next) => {
   try {
     await respondWithCertificateVerification(request, response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/certificates/issue', async (request, response, next) => {
+  try {
+    response.json(await listCertificates(request));
   } catch (error) {
     next(error);
   }

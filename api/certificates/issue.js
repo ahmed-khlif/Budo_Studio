@@ -1,4 +1,4 @@
-// Explicit route for certificate issue requests.
+// Explicit route for certificate history and issue requests.
 const app = require('../../server/index.js');
 
 module.exports = (request, response) => {

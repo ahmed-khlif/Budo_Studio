@@ -773,6 +773,64 @@ function bindGlobal(){
   toggle.onclick=()=>{const open=filterbar.classList.toggle('mobile-filterbar-collapsed')===false;toggle.setAttribute('aria-expanded',String(open));toggle.classList.toggle('active',open)};
   top.onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
  }
+ const certificateHistory={items:[],page:1,pageSize:12,total:0,search:'',status:'all',loading:false};
+ let certificateSearchTimer=null;
+ function certificateDate(value){if(!value)return 'Date inconnue';const date=new Date(value);return Number.isNaN(date.getTime())?'Date inconnue':new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(date)}
+ function certificateStatusLabel(status){return status==='revoked'?'Révoqué':'Actif'}
+ function renderCertificateHistory(){
+  const root=$('#certificate-list'),total=$('#certificate-total'),statusText=$('#certificate-list-status'),pagination=$('#certificate-pagination'),prev=$('#certificate-prev'),next=$('#certificate-next'),navCount=$('#certificate-nav-count');
+  if(!root)return;
+  if(total)total.textContent=certificateHistory.total;
+  if(navCount)navCount.textContent=certificateHistory.total;
+  const pages=Math.max(1,Math.ceil(certificateHistory.total/certificateHistory.pageSize));
+  if(pagination)pagination.textContent=certificateHistory.page+' / '+pages;
+  if(prev)prev.disabled=certificateHistory.loading||certificateHistory.page<=1;
+  if(next)next.disabled=certificateHistory.loading||certificateHistory.page>=pages;
+  if(certificateHistory.loading){if(statusText)statusText.textContent='Chargement des certificats…';root.innerHTML='<div class="certificate-empty"><span class="certificate-loading"></span><strong>Chargement de votre historique</strong><small>Les codes QR sont récupérés depuis votre espace sécurisé.</small></div>';return}
+  if(statusText)statusText.textContent=certificateHistory.total?'Historique synchronisé':'Aucun certificat publié';
+  if(!certificateHistory.items.length){root.innerHTML='<div class="certificate-empty"><span class="certificate-empty-icon"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h5M8 16h3"/></svg></span><strong>Aucun code QR trouvé</strong><small>Générez un certificat avec une zone QR pour le voir apparaître ici.</small><button class="btn primary small" type="button" data-nav="candidates">Voir les candidats</button></div>';return}
+  root.innerHTML=certificateHistory.items.map(item=>{
+   const active=item.status!=='revoked',hasLink=Boolean(item.verificationUrl),code=html(item.publicCode||'—'),serial=item.serial?'N° '+html(item.serial):'N° non renseigné';
+   const qr=hasLink?'<img data-certificate-qr="'+html(item.verificationUrl)+'" alt="QR de vérification pour '+html(item.name)+'">':'<span class="certificate-qr-unavailable">QR<br>indisponible</span>';
+   const actions=hasLink?'<button class="btn secondary small" type="button" data-certificate-copy="'+html(item.id)+'"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1"/></svg> Copier le lien</button><button class="btn primary small" type="button" data-certificate-open="'+html(item.id)+'">Ouvrir la vérification</button>':'<span class="certificate-record-note">Ancien enregistrement : réexportez ce certificat pour créer un lien récupérable.</span>';
+   return '<article class="certificate-record '+(active?'is-active':'is-revoked')+'"><div class="certificate-record-qr">'+qr+'</div><div class="certificate-record-main"><div class="certificate-record-top"><span class="certificate-status '+(active?'active':'revoked')+'"><span></span>'+certificateStatusLabel(item.status)+'</span><time datetime="'+html(item.issuedAt||'')+'">'+certificateDate(item.issuedAt)+'</time></div><h3>'+html(item.name||'Sans nom')+'</h3><div class="certificate-record-meta"><span>'+html(item.belt||'Ceinture non renseignée')+'</span><span>'+serial+'</span></div><div class="certificate-code-row"><span>Code QR</span><code>'+code+'</code></div><div class="certificate-record-actions">'+actions+'</div></div></article>';
+  }).join('');
+  root.querySelectorAll('img[data-certificate-qr]').forEach(image=>renderQrImage(image,{qrErrorCorrection:'H',qrMargin:2,qrDark:'#0f172a',qrLight:'#ffffff'},image.dataset.certificateQr));
+ }
+ async function loadCertificateHistory({reset=false,silent=false}={}){
+  if(reset)certificateHistory.page=1;
+  if(!backendApiReady){certificateHistory.loading=false;const statusText=$('#certificate-list-status');if(statusText)statusText.textContent='Connectez-vous pour voir les certificats';renderCertificateHistory();return}
+  certificateHistory.loading=true;renderCertificateHistory();
+  try{
+   const query=new URLSearchParams({page:String(certificateHistory.page),pageSize:String(certificateHistory.pageSize)});
+   if(certificateHistory.search)query.set('search',certificateHistory.search);
+   if(certificateHistory.status!=='all')query.set('status',certificateHistory.status);
+   const result=await backendRequest('/certificates/issue?'+query.toString());
+   certificateHistory.items=Array.isArray(result.data)?result.data:[];certificateHistory.total=Number(result.total)||0;certificateHistory.page=Number(result.page)||1;certificateHistory.pageSize=Number(result.pageSize)||12;
+  }catch(error){certificateHistory.items=[];certificateHistory.total=0;const statusText=$('#certificate-list-status');if(statusText)statusText.textContent=error.status===401?'Session expirée':'Impossible de charger la liste';if(!silent)showToast('Liste des certificats indisponible : '+error.message,true)}
+  finally{certificateHistory.loading=false;renderCertificateHistory()}
+ }
+ async function copyCertificateLink(id){
+  const item=certificateHistory.items.find(record=>record.id===id);if(!item?.verificationUrl){showToast('Lien de vérification indisponible pour cet ancien certificat.',true);return}
+  try{await navigator.clipboard.writeText(item.verificationUrl);showToast('Lien de vérification copié')}catch{showToast('Copie impossible. Ouvrez la vérification puis copiez son adresse.',true)}
+ }
+ function openCertificateLink(id){const item=certificateHistory.items.find(record=>record.id===id);if(item?.verificationUrl)window.open(item.verificationUrl,'_blank','noopener,noreferrer');else showToast('Lien de vérification indisponible pour cet ancien certificat.',true)}
+ function bindCertificateHistory(){
+  const search=$('#certificate-search'),status=$('#certificate-status'),refresh=$('#btn-refresh-certificates'),prev=$('#certificate-prev'),next=$('#certificate-next'),root=$('#certificate-list');
+  if(!search||search.dataset.bound)return;
+  search.dataset.bound='1';status.dataset.bound='1';refresh.dataset.bound='1';prev.dataset.bound='1';next.dataset.bound='1';root.dataset.bound='1';
+  search.oninput=()=>{clearTimeout(certificateSearchTimer);certificateSearchTimer=setTimeout(()=>{certificateHistory.search=search.value.trim();void loadCertificateHistory({reset:true})},280)};
+  status.onchange=()=>{certificateHistory.status=status.value;void loadCertificateHistory({reset:true})};
+  refresh.onclick=()=>void loadCertificateHistory();
+  prev.onclick=()=>{if(certificateHistory.page>1){certificateHistory.page-=1;void loadCertificateHistory()}};
+  next.onclick=()=>{const pages=Math.max(1,Math.ceil(certificateHistory.total/certificateHistory.pageSize));if(certificateHistory.page<pages){certificateHistory.page+=1;void loadCertificateHistory()}};
+  root.onclick=event=>{const copy=event.target.closest('[data-certificate-copy]'),open=event.target.closest('[data-certificate-open]'),nav=event.target.closest('[data-nav]');if(copy)void copyCertificateLink(copy.dataset.certificateCopy);else if(open)openCertificateLink(open.dataset.certificateOpen);else if(nav)setPage(nav.dataset.nav)};
+ }
+ const originalSetPageWithCertificates=setPage;
+ setPage=(page)=>{
+  if(page!=='certificates')return originalSetPageWithCertificates(page);
+  state.page='certificates';$$('.tab-view').forEach(view=>view.classList.toggle('hidden',view.id!=='view-certificates'));$$('[data-nav]').forEach(button=>button.classList.toggle('active',button.dataset.nav===page));$('#page-title').textContent='Codes QR générés';$('#crumb').textContent='Codes QR';$('#page-subtitle').textContent='Retrouvez et partagez les certificats publiés depuis votre espace sécurisé.';bindCertificateHistory();void loadCertificateHistory({reset:true});
+ };
  const originalRenderFieldLayer=renderFieldLayer;
  renderFieldLayer=(...args)=>{originalRenderFieldLayer(...args);$$('#field-layer .field-zone').forEach(field=>{field.tabIndex=0;field.setAttribute('role','button');field.setAttribute('aria-label',`${field.dataset.title||'Zone'} — utilisez les flèches pour déplacer`);field.setAttribute('aria-pressed',String(field.dataset.fieldId===state.selected))})};
  function decorateQrFields(){
@@ -788,12 +846,14 @@ function bindGlobal(){
  async function start(){
   ensureMobileCandidateRail();
   ensureQrFieldButton();
+  bindCertificateHistory();
   bindGlobal();bindImmediateDeletion();bindTemplateCreation();bindBackendTools();
+  if(window.location.hash.match(/^#\/studio\/certificates$/))setPage('certificates');
   const initialPage=window.location.hash.match(/^#\/studio\/(editor|overview|candidates|templates)$/)?.[1];if(initialPage)setPage(initialPage);
   Object.entries({'#btn-undo':'Annuler','#btn-redo':'Rétablir','#btn-zoom-out':'Réduire le zoom','#btn-zoom-in':'Augmenter le zoom','#btn-fit':'Ajuster l’aperçu','#btn-grid':'Afficher la grille','#btn-guides':'Afficher les guides','#btn-snap':'Activer l’aimantation'}).forEach(([selector,label])=>$(selector)?.setAttribute('aria-label',label));
   requestAnimationFrame(()=>$$('[data-nav]').forEach(item=>item.dataset.nav===state.page?item.setAttribute('aria-current','page'):item.removeAttribute('aria-current')));
   await initBackend();
-  if(backendReady){renderTemplateList();await new Promise(resolve=>setTimeout(resolve,130));fitZoom()}
+  if(backendReady){renderTemplateList();await new Promise(resolve=>setTimeout(resolve,130));fitZoom();if(state.page==='certificates')void loadCertificateHistory({reset:true})}
  }
 window.BudoStudioInitialize=start;
   start().catch(e=>{console.error('Échec BUDO Studio',e);showToast('Application non initialisée : '+e.message,true)});

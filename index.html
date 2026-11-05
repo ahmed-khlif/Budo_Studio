@@ -11,6 +11,7 @@
     <button class="nav-item" data-nav="candidates"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-3.4 3.1-5.2 7-5.2s6.4 1.8 7 5.2"/></svg></span><span class="nav-label">Candidats</span><span class="nav-count" id="candidate-nav-count">0</span></button>
     <button class="nav-item" data-nav="templates"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="13" height="15" rx="2"/><path d="M8 8h5M8 12h5M8 16h3M18 7h2v13H8v-1"/></svg></span><span class="nav-label">Bibliothèque des modèles</span></button>
     <button class="nav-item active" data-nav="editor"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v5m0 8v5M3 12h5m8 0h5"/><circle cx="12" cy="12" r="3.5"/></svg></span><span class="nav-label">Éditeur de diplôme</span></button>
+  <button class="nav-item certificate-nav-item" data-nav="certificates"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h5M8 16h3m7-5v5l-2-1-2 1v-5"/></svg></span><span class="nav-label">Codes QR</span><span class="nav-count" id="certificate-nav-count">0</span></button>
   </nav>
   <div class="side-bottom"><div class="private-label"><i></i><div><strong>Mode privé</strong><small>Traitement local dans le navigateur</small></div></div><small>SELF DEFENSE BUDO · V3.0</small></div>
 </aside>
@@ -49,6 +50,21 @@
 
     <section class="tab-view hidden" id="view-templates"><div class="panel template-library"><div class="section-heading row-heading"><div><h2>Modèles par ceinture</h2><p>11 types reconnus dans le fichier Excel, dans l'ordre d'origine. Le modèle jaune est disponible.</p></div><span class="tiny-pill">BIBLIOTHÈQUE</span></div><div id="template-list"></div><div class="foot-note">Les grades Kyu des autres couleurs ne sont pas déduits automatiquement. Seul le jaune = 9ème Kyu est confirmé par le document fourni.</div></div></section>
   </div>
+    <section class="tab-view hidden" id="view-certificates">
+      <div class="panel certificate-library">
+        <div class="section-heading row-heading certificate-library-heading">
+          <div><div class="eyebrow">VERIFICATION PUBLIQUE</div><h2>Codes QR générés</h2><p>Retrouvez chaque certificat publié, copiez son lien ou ouvrez sa page de vérification.</p></div>
+          <button class="btn secondary" id="btn-refresh-certificates" type="button"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.7-4L3 10m0-5v5h5M4 13a8 8 0 0 0 14.7 4L21 14m0 5v-5h-5"/></svg> Actualiser</button>
+        </div>
+        <div class="certificate-toolbar">
+          <label><span>Rechercher</span><input id="certificate-search" type="search" inputmode="search" autocomplete="off" placeholder="Nom, numéro ou code QR…"></label>
+          <label><span>Statut</span><select id="certificate-status"><option value="all">Tous</option><option value="active">Actifs</option><option value="revoked">Révoqués</option></select></label>
+        </div>
+        <div class="certificate-summary" aria-live="polite"><strong id="certificate-total">0</strong><span>certificat(s) publié(s)</span><small id="certificate-list-status">Chargement…</small></div>
+        <div id="certificate-list" class="certificate-list" aria-live="polite"></div>
+        <div class="certificate-list-foot"><span id="certificate-pagination">1 / 1</span><div><button class="btn secondary small" id="certificate-prev" type="button">Précédent</button><button class="btn secondary small" id="certificate-next" type="button">Suivant</button></div></div>
+      </div>
+    </section>
 </main>
 </div>
 <section id="backend-gate" class="backend-gate" role="dialog" aria-modal="true" aria-live="polite" aria-busy="true">
