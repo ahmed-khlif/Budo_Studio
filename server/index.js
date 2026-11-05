@@ -316,6 +316,7 @@ function publicCertificate(record) {
     obtained: record.obtained || '',
     serial: record.serial || '',
     status: record.status || 'active',
+    revokedAt: record.revoked_at || null,
     previewUrl: record.preview_url || '',
     templateSnapshot: publicTemplateSnapshot(record.template_snapshot),
     issuedAt: record.issued_at || record.created_at || null,

@@ -285,10 +285,18 @@ function PublicCertificatePage({ token }) {
       {state.status === 'error' && <div className="public-certificate-state error"><span className="public-status-icon"><Icon name="alert" size={22} /></span><strong>Certificat introuvable</strong><p>{state.error || 'Ce lien est incorrect ou expiré.'}</p></div>}
       {state.status === 'ready' && certificate && <>
         <div className={`public-certificate-status ${certificate.status === 'active' ? 'active' : 'revoked'}`}><Icon name={certificate.status === 'active' ? 'check' : 'alert'} size={18} /><span>{certificate.status === 'active' ? 'Certificat vérifié' : 'Certificat révoqué'}</span></div>
-        <div className="public-certificate-heading"><span className="auth-eyebrow">CERTIFICAT OFFICIEL</span><h1 id="public-certificate-title">{certificate.name}</h1><p>{certificate.belt || 'Grade non renseigné'}{certificate.kyu ? ` · ${certificate.kyu}ème Kyu` : ''}</p></div>
-        <CertificatePreview certificate={certificate} />
-        <dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl>
-        <p className="public-certificate-note">Ce certificat a été émis et peut être vérifié via BUDO Studio. Les informations personnelles non nécessaires ne sont pas affichées publiquement.</p>
+        {certificate.status === 'active' ? <>
+          <div className="public-certificate-heading"><span className="auth-eyebrow">CERTIFICAT OFFICIEL</span><h1 id="public-certificate-title">{certificate.name}</h1><p>{certificate.belt || 'Grade non renseigné'}{certificate.kyu ? ` · ${certificate.kyu}ème Kyu` : ''}</p></div>
+          <CertificatePreview certificate={certificate} />
+          <dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl>
+          <p className="public-certificate-note">Ce certificat a été émis et peut être vérifié via BUDO Studio. Les informations personnelles non nécessaires ne sont pas affichées publiquement.</p>
+        </> : <div className="public-certificate-revoked-panel" role="status">
+          <span className="public-certificate-lock" aria-hidden="true"><Icon name="shield" size={28} /></span>
+          <h1 id="public-certificate-title">Certificat verrouillé</h1>
+          <p>Ce certificat a été révoqué par l’organisation émettrice et n’est plus considéré comme valide.</p>
+          <dl className="public-certificate-revoked-details"><div><dt>Titulaire</dt><dd>{certificate.name}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div>{certificate.revokedAt && <div><dt>Révoqué le</dt><dd>{new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(certificate.revokedAt))}</dd></div>}</dl>
+          <p className="public-certificate-note revoked">Pour vérifier un nouveau certificat, demandez un lien réémis par l’organisation.</p>
+        </div>}
       </>}
       <footer className="public-certificate-footer">BUDO Studio · Vérification publique de certificat</footer>
     </section>
