@@ -594,7 +594,7 @@ async function issueVerificationTokens(candidates){
  if(!backendApiReady)throw Error('Connectez le studio au backend pour publier les liens de vérification QR.');
  const response=await backendRequest('/certificates/issue',{method:'POST',body:JSON.stringify({certificates:needs.map(candidate=>{
    const certificateIdentity=String(candidate.metadata?.certificateIdentity||candidate.id);
-   candidate.metadata={...(candidate.metadata||{}),certificateIdentity};
+   candidate.metadata={...(candidate.metadata||{}),certificateIdentity,birth:candidate.birth||'',ordinal:candidate.ordinal||'',origin:candidate.origin||''};
    const template=state.templates[candidate.belt];
    return {clientId:candidate.id,candidateId:backendCandidateIds.has(candidate.id)?candidate.id:null,name:candidate.name,belt:candidate.belt,kyu:candidate.kyu??null,examDate:candidate.examDate||'',obtained:candidate.obtained||'',serial:officialSerial(candidate.serial)||officialSerial(candidate.ordinal),templateSnapshot:templateConfig(candidate.belt,state.layouts[candidate.belt],template?.previewUrl||template?.remoteUrl||template?.src||''),metadata:candidate.metadata};
   })})});

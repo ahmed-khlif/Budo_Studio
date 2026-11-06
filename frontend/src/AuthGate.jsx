@@ -175,10 +175,13 @@ function certificateFieldValue(field, certificate) {
   if (field.source === 'qr' || field.type === 'qr') return '';
   if (field.source === 'kyu') return certificate.kyu ? `${certificate.kyu}ème Kyu` : '';
   if (field.source === 'serial') return certificate.serial || '';
+  if (field.source === 'birth') return certificate.birth || '';
   if (field.source === 'examDate') return certificate.examDate || '';
   if (field.source === 'belt') return certificate.belt || '';
   if (field.source === 'obtained') return certificate.obtained || '';
   if (field.source === 'name') return certificate.name || '';
+  if (field.source === 'ordinal') return certificate.ordinal || '';
+  if (field.source === 'origin') return certificate.origin || '';
   return '';
 }
 
@@ -237,6 +240,74 @@ function CertificateSnapshotPreview({ certificate, snapshot }) {
   </figure>;
 }
 
+function CertificateSnapshotPreviewExact({ certificate, snapshot }) {
+  const [qrSources, setQrSources] = useState({});
+
+  useEffect(() => {
+    let active = true;
+    const qrFields = (snapshot?.fields || []).filter((field) => field.source === 'qr' || field.type === 'qr');
+    import('qrcode').then(async (module) => {
+      const qr = module.default || module;
+      const entries = await Promise.all(qrFields.map(async (field) => {
+        const matrix = qr.create(window.location.href, { errorCorrectionLevel: field.qrErrorCorrection || 'H' });
+        const margin = Math.min(8, Math.max(1, Number(field.qrMargin) || 2));
+        const modules = matrix.modules.size;
+        const cell = Math.max(2, Math.floor(320 / (modules + margin * 2)));
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = (modules + margin * 2) * cell;
+        const context = canvas.getContext('2d');
+        context.fillStyle = field.qrLight || '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = field.qrDark || '#0f172a';
+        for (let row = 0; row < modules; row += 1) for (let column = 0; column < modules; column += 1) if (matrix.modules.get(row, column)) {
+          const x = (column + margin) * cell;
+          const y = (row + margin) * cell;
+          if (field.qrShape === 'dots') { context.beginPath(); context.arc(x + cell / 2, y + cell / 2, cell * .42, 0, Math.PI * 2); context.fill(); }
+          else context.fillRect(x, y, cell, cell);
+        }
+        return [field.id, canvas.toDataURL('image/png')];
+      }));
+      if (active) setQrSources(Object.fromEntries(entries));
+    }).catch(() => { if (active) setQrSources({}); });
+    return () => { active = false; };
+  }, [certificate.id, snapshot]);
+
+  if (!snapshot?.backgroundUrl) return null;
+  const size = snapshot.size || { width: 645.75, height: 936.75 };
+  const fontFamily = { Mirza: 'Mirza', MirzaImported: 'MirzaImported', Amiri: 'Amiri', Arial: 'Arial', Georgia: 'Georgia', Times: 'Times New Roman', Tahoma: 'Tahoma' };
+  return <figure className="public-certificate-snapshot-figure">
+    <div className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
+      <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" />
+      <div className="public-certificate-snapshot-fields">
+        {(snapshot.fields || []).map((field) => {
+          const isQr = field.source === 'qr' || field.type === 'qr';
+          const value = certificateFieldValue(field, certificate);
+          if (!isQr && !value) return null;
+          const align = field.align === 'left' ? 'flex-start' : field.align === 'right' ? 'flex-end' : 'center';
+          const style = {
+            left: `${(field.x / size.width) * 100}%`, top: `${(field.y / size.height) * 100}%`,
+            width: `${(field.w / size.width) * 100}%`, height: `${(field.h / size.height) * 100}%`,
+            color: field.color || '#0f172a', opacity: field.opacity, boxSizing: 'border-box',
+            transform: `translate(-50%, -50%) rotate(${field.rotation || 0}deg)`,
+            fontFamily: `'${String(fontFamily[field.family] || field.family || 'Arial').replace(/['"]/g, '')}', Arial, sans-serif`,
+            fontSize: `${(field.size / size.width) * 100}cqw`, fontWeight: field.weight, fontStyle: field.italic ? 'italic' : 'normal',
+            letterSpacing: `${(field.letterSpacing || 0) / size.width * 100}cqw`, direction: field.direction || 'rtl',
+            justifyContent: align, textAlign: field.align || 'center', filter: `brightness(${field.brightness || 100}%)`,
+            textShadow: [field.glow ? `0 0 ${(Number(field.glow) / 100) * 18}px ${field.glowColor || '#ffffff'}` : '', field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : ''].filter(Boolean).join(', ') || 'none',
+            textDecoration: field.underline ? 'underline' : 'none',
+            backgroundColor: isQr && field.qrFrame === 'rounded' ? (field.qrLight || '#ffffff') : 'transparent',
+            '--qr-dark': field.qrDark || '#0f172a', '--qr-light': field.qrLight || '#ffffff',
+          };
+          return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
+            {isQr ? <>{qrSources[field.id] && <img src={qrSources[field.id]} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}
+          </div>;
+        })}
+      </div>
+    </div>
+    <figcaption>Aperçu reconstruit depuis le modèle officiel et les données du certificat.</figcaption>
+  </figure>;
+}
+
 function CertificatePreview({ certificate }) {
   const [failed, setFailed] = useState(false);
 
@@ -248,7 +319,7 @@ function CertificatePreview({ certificate }) {
   // Prefer it over an older uploaded preview so QR dimensions cannot fall
   // back to a previous export.
   if (certificate.templateSnapshot?.backgroundUrl) {
-    return <CertificateSnapshotPreview certificate={certificate} snapshot={certificate.templateSnapshot} />;
+    return <CertificateSnapshotPreviewExact certificate={certificate} snapshot={certificate.templateSnapshot} />;
   }
 
   if (!certificate.previewUrl || failed) {

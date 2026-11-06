@@ -234,6 +234,9 @@ function certificateIssueKey(workspaceId, parsed) {
     examDate: parsed.examDate || '',
     obtained: parsed.obtained || '',
     serial: parsed.serial || '',
+    birth: parsed.metadata?.birth || '',
+    ordinal: parsed.metadata?.ordinal || '',
+    origin: parsed.metadata?.origin || '',
     templateSnapshot: parsed.templateSnapshot || {},
   })).digest('hex');
 }
@@ -291,8 +294,12 @@ function publicTemplateSnapshot(snapshot) {
     shadow: Number(field?.shadow) || 0,
     shadowColor: field?.shadowColor || '#000000',
     underline: Boolean(field?.underline),
+    autoFit: field?.autoFit !== false,
     qrFrame: field?.qrFrame || 'none',
     qrCaption: field?.qrCaption || '',
+    qrShape: field?.qrShape || 'square',
+    qrMargin: Number(field?.qrMargin) || 2,
+    qrErrorCorrection: field?.qrErrorCorrection || 'H',
     qrDark: field?.qrDark || '#0f172a',
     qrLight: field?.qrLight || '#ffffff',
   })).filter((field) => field.visible && field.id) : [];
@@ -306,6 +313,7 @@ function publicTemplateSnapshot(snapshot) {
 }
 
 function publicCertificate(record) {
+  const metadata = record.metadata && typeof record.metadata === 'object' ? record.metadata : {};
   return {
     id: record.id,
     publicCode: record.public_code,
@@ -315,6 +323,9 @@ function publicCertificate(record) {
     examDate: record.exam_date || '',
     obtained: record.obtained || '',
     serial: record.serial || '',
+    birth: record.birth || metadata.birth || '',
+    ordinal: record.ordinal || metadata.ordinal || '',
+    origin: record.origin || metadata.origin || '',
     status: record.status || 'active',
     revokedAt: record.revoked_at || null,
     previewUrl: record.preview_url || '',
@@ -437,7 +448,7 @@ async function issueCertificates(request, body) {
 async function findCertificateByToken(token) {
   const hash = certificateTokenHash(token);
   if (!supabase) return memory.certificates.get(hash) || null;
-  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,preview_url,template_snapshot,issued_at,created_at').eq('token_hash', hash).maybeSingle();
+  const { data, error } = await supabase.from('issued_certificates').select('id,public_code,name,belt,kyu,exam_date,obtained,serial,status,metadata,preview_url,template_snapshot,issued_at,created_at').eq('token_hash', hash).maybeSingle();
   if (error) throw error;
   return data || null;
 }
