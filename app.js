@@ -499,6 +499,8 @@ function renderCandidates(){state.candidates=state.candidates.map(candidate=>({.
  }).join('')||'<tr><td colspan="8" class="blank-table">Aucun candidat pour ces filtres. Importez votre Excel ou modifiez les filtres.</td></tr>';
  $('#rows-foot').textContent=`${rows.length} résultats · ${state.candidates.length} candidats au total`;
  $('#selection-tally').textContent=`${state.selectedIds.size} sélectionné(s)`;
+ const stickyExport=$('#btn-export-selected-sticky');if(stickyExport){stickyExport.textContent=state.selectedIds.size?`Générer les certificats · ${state.selectedIds.size}`:'Générer les certificats';stickyExport.setAttribute('aria-label',state.selectedIds.size?`Générer les certificats pour ${state.selectedIds.size} candidat(s) sélectionné(s)`:`Générer les certificats pour les résultats filtrés`)}
+ const tableExport=$('#btn-export-table');if(tableExport)tableExport.textContent=state.selectedIds.size?`Générer les certificats sélectionnés (${state.selectedIds.size})`:'Générer les certificats';
  $('#candidate-pagination').textContent=`${state.currentPage} / ${pages}`;
  $('#candidate-prev').disabled=state.currentPage===1;$('#candidate-next').disabled=state.currentPage===pages;
  $('#select-visible').checked=view.length>0&&view.every(c=>state.selectedIds.has(c.id));
@@ -764,11 +766,21 @@ function bindGlobal(){
  }
  function ensureMobileCandidateRail(){
   const panel=$('#view-candidates .candidate-panel'),filterbar=panel?.querySelector('.filterbar');
-  if(!panel||!filterbar||$('#candidate-mobile-rail'))return;
+  if(!panel||!filterbar)return;
+  let stickyControls=panel.querySelector('.candidate-sticky-controls');
+  if(!stickyControls){
+   stickyControls=document.createElement('div');stickyControls.className='candidate-sticky-controls';panel.insertBefore(stickyControls,filterbar);stickyControls.append(filterbar);
+   const selectionToolbar=panel.querySelector('.selection-toolbar');if(selectionToolbar)stickyControls.append(selectionToolbar);
+  }
+  const selectionToolbar=stickyControls.querySelector('.selection-toolbar');
+  if(selectionToolbar&&!selectionToolbar.querySelector('#btn-export-selected-sticky')){
+   const exportButton=document.createElement('button');exportButton.id='btn-export-selected-sticky';exportButton.className='btn primary small sticky-selection-export';exportButton.type='button';exportButton.textContent='Générer les certificats';exportButton.setAttribute('aria-label','Générer les certificats pour la sélection');exportButton.onclick=exportDialog;selectionToolbar.append(exportButton);
+  }
+  if($('#candidate-mobile-rail'))return;
   const rail=document.createElement('div');
   rail.id='candidate-mobile-rail';rail.className='candidate-mobile-rail';
   rail.innerHTML='<label class="candidate-mobile-search"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg><span class="sr-only">Rechercher un candidat</span><input id="mobile-candidate-search" type="search" inputmode="search" autocomplete="off" placeholder="Rechercher…" aria-label="Rechercher un candidat"></label><button class="btn secondary small" id="btn-mobile-filters" type="button" aria-expanded="false" aria-controls="candidate-filters"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>Filtres</span></button><button class="btn secondary small" id="btn-mobile-top" type="button" aria-label="Revenir en haut"><svg class="icon-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5"/></svg><span>Haut</span></button>';
-  filterbar.id='candidate-filters';filterbar.classList.add('mobile-filterbar-collapsed');panel.insertBefore(rail,filterbar);
+  filterbar.id='candidate-filters';filterbar.classList.add('mobile-filterbar-collapsed');filterbar.parentElement.insertBefore(rail,filterbar);
   const mobileSearch=$('#mobile-candidate-search'),desktopSearch=$('#candidate-search'),toggle=$('#btn-mobile-filters'),top=$('#btn-mobile-top');
   mobileSearch.oninput=event=>{desktopSearch.value=event.target.value;state.search=event.target.value;state.currentPage=1;renderCandidates()};
   toggle.onclick=()=>{const open=filterbar.classList.toggle('mobile-filterbar-collapsed')===false;toggle.setAttribute('aria-expanded',String(open));toggle.classList.toggle('active',open)};
