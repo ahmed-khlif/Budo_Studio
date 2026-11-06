@@ -1080,6 +1080,9 @@ app.put('/api/admin/users/:id/role', async (request, response, next) => {
 });
 
 async function respondWithCertificateVerification(request, response) {
+  response.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  response.set('Pragma', 'no-cache');
+  response.set('Expires', '0');
   const token = String(request.params.token || request.query.token || '').trim();
   if (!/^[A-Za-z0-9_-]{32,100}$/.test(token)) return response.status(404).json({ error: 'Certificate not found.' });
   const certificate = await findCertificateByToken(token);

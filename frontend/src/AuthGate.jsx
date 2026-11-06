@@ -20,6 +20,8 @@ function Icon({ name, size = 18, className = '' }) {
     check: <path d="m5 12 4 4L19 6" />,
     arrow: <><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></>,
     shield: <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" /><path d="m9 12 2 2 4-4" /></>,
+    download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></>,
+    copy: <><rect x="8" y="8" width="13" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
     alert: <><path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3.1l-8-14a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4m0 4h.01" /></>,
   };
   return <svg className={`ui-icon ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
@@ -240,7 +242,7 @@ function CertificateSnapshotPreview({ certificate, snapshot }) {
   </figure>;
 }
 
-function CertificateSnapshotPreviewExact({ certificate, snapshot }) {
+function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundError }) {
   const [qrSources, setQrSources] = useState({});
 
   useEffect(() => {
@@ -277,7 +279,7 @@ function CertificateSnapshotPreviewExact({ certificate, snapshot }) {
   const fontFamily = { Mirza: 'Mirza', MirzaImported: 'MirzaImported', Amiri: 'Amiri', Arial: 'Arial', Georgia: 'Georgia', Times: 'Times New Roman', Tahoma: 'Tahoma' };
   return <figure className="public-certificate-snapshot-figure">
     <div className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
-      <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" />
+      <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" onError={onBackgroundError} />
       <div className="public-certificate-snapshot-fields">
         {(snapshot.fields || []).map((field) => {
           const isQr = field.source === 'qr' || field.type === 'qr';
@@ -310,16 +312,18 @@ function CertificateSnapshotPreviewExact({ certificate, snapshot }) {
 
 function CertificatePreview({ certificate }) {
   const [failed, setFailed] = useState(false);
+  const [snapshotBackgroundFailed, setSnapshotBackgroundFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
-  }, [certificate.id, certificate.previewUrl]);
+    setSnapshotBackgroundFailed(false);
+  }, [certificate.id, certificate.previewUrl, certificate.templateSnapshot?.backgroundUrl]);
 
   // The saved template snapshot is the source of truth for this certificate.
   // Prefer it over an older uploaded preview so QR dimensions cannot fall
   // back to a previous export.
-  if (certificate.templateSnapshot?.backgroundUrl) {
-    return <CertificateSnapshotPreviewExact certificate={certificate} snapshot={certificate.templateSnapshot} />;
+  if (certificate.templateSnapshot?.backgroundUrl && !snapshotBackgroundFailed) {
+    return <CertificateSnapshotPreviewExact certificate={certificate} snapshot={certificate.templateSnapshot} onBackgroundError={() => setSnapshotBackgroundFailed(true)} />;
   }
 
   if (!certificate.previewUrl || failed) {
@@ -337,10 +341,13 @@ function CertificatePreview({ certificate }) {
 
 function PublicCertificatePage({ token }) {
   const [state, setState] = useState({ status: 'loading', certificate: null, error: '' });
+  const [retry, setRetry] = useState(0);
+  const [copyState, setCopyState] = useState('idle');
+  const certificate = state.certificate;
 
   useEffect(() => {
     let active = true;
-    fetch(`${publicApiBase}/verify?token=${encodeURIComponent(token)}`)
+    fetch(`${publicApiBase}/verify?token=${encodeURIComponent(token)}`, { cache: 'no-store' })
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || 'Certificat introuvable.');
@@ -349,21 +356,37 @@ function PublicCertificatePage({ token }) {
       .then((certificate) => { if (active) setState({ status: 'ready', certificate, error: '' }); })
       .catch((error) => { if (active) setState({ status: 'error', certificate: null, error: error.message }); });
     return () => { active = false; };
-  }, [token]);
+  }, [token, retry]);
 
-  const certificate = state.certificate;
+  const copyVerificationLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 2200);
+    } catch {
+      setCopyState('unavailable');
+      window.setTimeout(() => setCopyState('idle'), 2600);
+    }
+  };
+
+  const issuedDate = certificate?.issuedAt && Number.isFinite(Date.parse(certificate.issuedAt))
+    ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(certificate.issuedAt))
+    : '';
+
   return <main className="public-certificate-page">
-    <section className="public-certificate-shell" aria-labelledby="public-certificate-title">
-      <header className="public-certificate-header"><img src={budoBrand} alt="BUDO Studio" /><span><strong>BUDO<span>Studio</span></strong><small>Certificate verification</small></span></header>
+    <section className="public-certificate-shell" aria-label="Vérification publique du certificat">
+      <header className="public-certificate-header"><img src={budoBrand} alt="" /><span><strong>BUDO<span>Studio</span></strong><small>Vérification officielle des certificats</small></span><span className="public-certificate-issuer">Émetteur officiel</span></header>
       {state.status === 'loading' && <div className="public-certificate-state"><span className="auth-spinner" /><strong>Vérification du certificat…</strong><small>Connexion sécurisée à BUDO Studio</small></div>}
-      {state.status === 'error' && <div className="public-certificate-state error"><span className="public-status-icon"><Icon name="alert" size={22} /></span><strong>Certificat introuvable</strong><p>{state.error || 'Ce lien est incorrect ou expiré.'}</p></div>}
+      {state.status === 'error' && <div className="public-certificate-state error"><span className="public-status-icon"><Icon name="alert" size={22} /></span><strong>Vérification impossible</strong><p>{state.error || 'Ce lien est incorrect ou expiré.'}</p><button className="public-certificate-action secondary" type="button" onClick={() => { setState({ status: 'loading', certificate: null, error: '' }); setRetry((value) => value + 1); }}>Réessayer</button></div>}
       {state.status === 'ready' && certificate && <>
-        <div className={`public-certificate-status ${certificate.status === 'active' ? 'active' : 'revoked'}`}><Icon name={certificate.status === 'active' ? 'check' : 'alert'} size={18} /><span>{certificate.status === 'active' ? 'Certificat vérifié' : 'Certificat révoqué'}</span></div>
+        <div className={`public-certificate-status ${certificate.status === 'active' ? 'active' : 'revoked'}`} role="status" aria-live="polite"><Icon name={certificate.status === 'active' ? 'check' : 'alert'} size={18} /><span>{certificate.status === 'active' ? 'Certificat authentique et valide' : 'Certificat révoqué'}</span><small>{certificate.status === 'active' ? 'Référence confirmée par BUDO Studio' : 'Ce certificat n’est plus valide'}</small></div>
         {certificate.status === 'active' ? <>
           <div className="public-certificate-heading"><span className="auth-eyebrow">CERTIFICAT OFFICIEL</span><h1 id="public-certificate-title">{certificate.name}</h1><p>{certificate.belt || 'Grade non renseigné'}{certificate.kyu ? ` · ${certificate.kyu}ème Kyu` : ''}</p></div>
+          <div className="public-certificate-actions" aria-label="Actions du certificat"><button className="public-certificate-action primary" type="button" onClick={() => window.print()}><Icon name="download" size={17} /> Imprimer / Enregistrer en PDF</button><button className="public-certificate-action secondary" type="button" onClick={copyVerificationLink}><Icon name="copy" size={16} /> {copyState === 'copied' ? 'Lien copié' : 'Copier le lien public'}</button></div>
+          <span className="public-certificate-copy-status" aria-live="polite">{copyState === 'unavailable' ? 'La copie automatique est indisponible sur cet appareil.' : ''}</span>
           <CertificatePreview certificate={certificate} />
-          <dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div><div><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl>
-          <p className="public-certificate-note">Ce certificat a été émis et peut être vérifié via BUDO Studio. Les informations personnelles non nécessaires ne sont pas affichées publiquement.</p>
+          <section className="public-certificate-record" aria-labelledby="public-certificate-record-title"><div className="public-certificate-record-heading"><span className="public-certificate-record-icon"><Icon name="shield" size={18} /></span><span><h2 id="public-certificate-record-title">Détails de vérification</h2><small>Informations confirmées par l’organisation émettrice</small></span></div><dl className="public-certificate-details"><div><dt>N° officiel</dt><dd>{certificate.serial || '—'}</dd></div><div><dt>Date d’examen</dt><dd>{certificate.examDate || '—'}</dd></div><div><dt>Date du grade</dt><dd>{certificate.obtained || '—'}</dd></div>{issuedDate && <div><dt>Date d’émission</dt><dd>{issuedDate}</dd></div>}<div className="verification-code"><dt>Code de vérification</dt><dd>{certificate.publicCode}</dd></div></dl></section>
+          <p className="public-certificate-note"><Icon name="shield" size={15} /> Le statut est vérifié en direct auprès de BUDO Studio. Le modèle et les informations visibles sur le diplôme correspondent au certificat émis.</p>
         </> : <div className="public-certificate-revoked-panel" role="status">
           <span className="public-certificate-lock" aria-hidden="true"><Icon name="shield" size={28} /></span>
           <h1 id="public-certificate-title">Certificat verrouillé</h1>
