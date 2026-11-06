@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import MainStudio from './MainStudio';
 import budoBrand from '../../budo_studio.png';
@@ -206,6 +206,23 @@ function CertificateSnapshotPreview({ certificate, snapshot }) {
 
 function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundError }) {
   const [qrSources, setQrSources] = useState({});
+  const [renderScale, setRenderScale] = useState(1);
+  const previewRef = useRef(null);
+  const size = snapshot.size || { width: 645.75, height: 936.75 };
+
+  useLayoutEffect(() => {
+    const node = previewRef.current;
+    if (!node || !size.width) return undefined;
+    const updateScale = () => {
+      const nextScale = node.getBoundingClientRect().width / size.width;
+      if (nextScale > 0) setRenderScale((current) => Math.abs(current - nextScale) < 0.001 ? current : nextScale);
+    };
+    updateScale();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateScale) : null;
+    observer?.observe(node);
+    window.addEventListener('resize', updateScale);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', updateScale); };
+  }, [size.width]);
 
   useEffect(() => {
     let active = true;
@@ -237,10 +254,9 @@ function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundEr
   }, [certificate.id, snapshot]);
 
   if (!snapshot?.backgroundUrl) return null;
-  const size = snapshot.size || { width: 645.75, height: 936.75 };
   const fontFamily = { Mirza: 'Mirza', MirzaImported: 'MirzaImported', Amiri: 'Amiri', Arial: 'Arial', Georgia: 'Georgia', Times: 'Times New Roman', Tahoma: 'Tahoma' };
   return <figure className="public-certificate-snapshot-figure">
-    <div className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
+    <div ref={previewRef} className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
       <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" onError={onBackgroundError} />
       <div className="public-certificate-snapshot-fields">
         {(snapshot.fields || []).map((field) => {
@@ -248,21 +264,24 @@ function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundEr
           const value = certificateFieldValue(field, certificate);
           if (!isQr && !value) return null;
           const align = field.align === 'left' ? 'flex-start' : field.align === 'right' ? 'flex-end' : 'center';
+          const qrPadding = (field.qrFrame === 'rounded' ? 6 : 3) * renderScale;
           const style = {
-            left: `${(field.x / size.width) * 100}%`, top: `${(field.y / size.height) * 100}%`,
-            width: `${(field.w / size.width) * 100}%`, height: `${(field.h / size.height) * 100}%`,
-            opacity: field.opacity, boxSizing: 'border-box',
+            left: `${field.x * renderScale}px`, top: `${field.y * renderScale}px`,
+            width: `${field.w * renderScale}px`, height: `${field.h * renderScale}px`,
+            opacity: field.opacity, boxSizing: 'border-box', borderWidth: `${renderScale}px`,
             transform: `translate(-50%, -50%) rotate(${field.rotation || 0}deg)`,
             fontFamily: `'${String(fontFamily[field.family] || field.family || 'Arial').replace(/['"]/g, '')}', Arial, sans-serif`,
             '--qr-dark': field.qrDark || '#0f172a', '--qr-light': field.qrLight || '#ffffff',
+            '--qr-padding': `${qrPadding}px`, '--qr-gap': `${3 * renderScale}px`, '--qr-caption-size': `${10 * renderScale}px`,
+            '--qr-max-inset': `${14 * renderScale}px`, '--qr-radius': `${12 * renderScale}px`, '--field-inset': `${4 * renderScale}px`,
           };
           const textStyle = {
             color: field.color || '#0f172a', fontFamily: style.fontFamily,
-            fontSize: `${(certificateFieldFontSize(field, value, fontFamily[field.family] || field.family || 'Arial') / size.width) * 100}cqw`,
+            fontSize: `${certificateFieldFontSize(field, value, fontFamily[field.family] || field.family || 'Arial') * renderScale}px`,
             fontWeight: field.weight || 400, fontStyle: field.italic ? 'italic' : 'normal',
-            letterSpacing: `${(field.letterSpacing || 0) / size.width * 100}cqw`, direction: field.direction || 'rtl',
+            letterSpacing: `${(field.letterSpacing || 0) * renderScale}px`, direction: field.direction || 'rtl',
             justifyContent: align, textAlign: field.align || 'center', filter: `brightness(${field.brightness || 100}%)`,
-            textShadow: [field.glow ? `0 0 ${(Number(field.glow) / 100) * 18}px ${field.glowColor || '#ffffff'}` : '', field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : ''].filter(Boolean).join(', ') || 'none',
+            textShadow: [field.glow ? `0 0 ${(Number(field.glow) / 100) * 18 * renderScale}px ${field.glowColor || '#ffffff'}` : '', field.shadow ? `0 ${(Number(field.shadow) / 25) * renderScale}px ${(Number(field.shadow) / 100) * 10 * renderScale}px ${field.shadowColor || '#000000'}` : ''].filter(Boolean).join(', ') || 'none',
             textDecoration: field.underline ? 'underline' : 'none',
           };
           return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
