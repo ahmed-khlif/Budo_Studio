@@ -187,59 +187,21 @@ function certificateFieldValue(field, certificate) {
   return '';
 }
 
+function certificateFieldFontSize(field, value, family) {
+  const base = Number(field.size || 30);
+  const available = Math.max(12, Number(field.w || 200) - 8);
+  const heightLimit = Math.max(8, (Number(field.h || 50) - 4) / 1.12);
+  if (field.autoFit === false || !value) return base;
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) return base;
+  context.font = `${field.italic ? 'italic ' : ''}${field.weight || 400} ${base}px '${family}', 'Amiri', serif`;
+  const measured = context.measureText(value).width + (String(value).length - 1) * Number(field.letterSpacing || 0);
+  const widthFit = measured > available ? base * available / measured : base;
+  return Math.max(8, Math.min(base, widthFit, heightLimit));
+}
+
 function CertificateSnapshotPreview({ certificate, snapshot }) {
-  const [qrSource, setQrSource] = useState('');
-
-  useEffect(() => {
-    let active = true;
-    import('qrcode').then((module) => (module.default || module).toDataURL(window.location.href, { errorCorrectionLevel: 'H', margin: 1, width: 320 }))
-      .then((source) => { if (active) setQrSource(source); })
-      .catch(() => { if (active) setQrSource(''); });
-    return () => { active = false; };
-  }, [certificate.id]);
-
-  if (!snapshot?.backgroundUrl) return null;
-  const size = snapshot.size || { width: 645.75, height: 936.75 };
-  return <figure className="public-certificate-snapshot-figure">
-    <div className="public-certificate-snapshot" style={{ aspectRatio: `${size.width} / ${size.height}` }}>
-      <img className="public-certificate-snapshot-background" src={snapshot.backgroundUrl} alt="" aria-hidden="true" />
-      <div className="public-certificate-snapshot-fields">
-        {(snapshot.fields || []).map((field) => {
-          const isQr = field.source === 'qr' || field.type === 'qr';
-          const value = certificateFieldValue(field, certificate);
-          if (!isQr && !value) return null;
-          const align = field.align === 'left' ? 'flex-start' : field.align === 'right' ? 'flex-end' : 'center';
-          const style = {
-            left: `${(field.x / size.width) * 100}%`,
-            top: `${(field.y / size.height) * 100}%`,
-            width: `${(field.w / size.width) * 100}%`,
-            height: `${(field.h / size.height) * 100}%`,
-            color: field.color,
-            opacity: field.opacity,
-            transform: `translate(-50%, -50%) rotate(${field.rotation || 0}deg)`,
-            fontFamily: `'${String(field.family || 'Arial').replace(/['"]/g, '')}', Arial, sans-serif`,
-            fontSize: `${(field.size / size.width) * 100}cqw`,
-            fontWeight: field.weight,
-            fontStyle: field.italic ? 'italic' : 'normal',
-            letterSpacing: `${(field.letterSpacing || 0) / size.width * 100}cqw`,
-            direction: field.direction || 'rtl',
-            justifyContent: align,
-            textAlign: field.align || 'center',
-            filter: `brightness(${field.brightness || 100}%)`,
-            textShadow: [
-              field.glow ? `0 0 ${(Number(field.glow) / 100) * 18}px ${field.glowColor || '#ffffff'}` : '',
-              field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : '',
-            ].filter(Boolean).join(', ') || 'none',
-            textDecoration: field.underline ? 'underline' : 'none',
-          };
-          return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
-            {isQr ? <>{qrSource && <img src={qrSource} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}
-          </div>;
-        })}
-      </div>
-    </div>
-    <figcaption>Aperçu reconstruit depuis le modèle officiel et les données du certificat.</figcaption>
-  </figure>;
+  return <CertificateSnapshotPreviewExact certificate={certificate} snapshot={snapshot} />;
 }
 
 function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundError }) {
@@ -289,19 +251,22 @@ function CertificateSnapshotPreviewExact({ certificate, snapshot, onBackgroundEr
           const style = {
             left: `${(field.x / size.width) * 100}%`, top: `${(field.y / size.height) * 100}%`,
             width: `${(field.w / size.width) * 100}%`, height: `${(field.h / size.height) * 100}%`,
-            color: field.color || '#0f172a', opacity: field.opacity, boxSizing: 'border-box',
+            opacity: field.opacity, boxSizing: 'border-box',
             transform: `translate(-50%, -50%) rotate(${field.rotation || 0}deg)`,
             fontFamily: `'${String(fontFamily[field.family] || field.family || 'Arial').replace(/['"]/g, '')}', Arial, sans-serif`,
-            fontSize: `${(field.size / size.width) * 100}cqw`, fontWeight: field.weight, fontStyle: field.italic ? 'italic' : 'normal',
+            '--qr-dark': field.qrDark || '#0f172a', '--qr-light': field.qrLight || '#ffffff',
+          };
+          const textStyle = {
+            color: field.color || '#0f172a', fontFamily: style.fontFamily,
+            fontSize: `${(certificateFieldFontSize(field, value, fontFamily[field.family] || field.family || 'Arial') / size.width) * 100}cqw`,
+            fontWeight: field.weight || 400, fontStyle: field.italic ? 'italic' : 'normal',
             letterSpacing: `${(field.letterSpacing || 0) / size.width * 100}cqw`, direction: field.direction || 'rtl',
             justifyContent: align, textAlign: field.align || 'center', filter: `brightness(${field.brightness || 100}%)`,
             textShadow: [field.glow ? `0 0 ${(Number(field.glow) / 100) * 18}px ${field.glowColor || '#ffffff'}` : '', field.shadow ? `0 ${(Number(field.shadow) / 25).toFixed(1)}px ${(Number(field.shadow) / 100) * 10}px ${field.shadowColor || '#000000'}` : ''].filter(Boolean).join(', ') || 'none',
             textDecoration: field.underline ? 'underline' : 'none',
-            backgroundColor: isQr && field.qrFrame === 'rounded' ? (field.qrLight || '#ffffff') : 'transparent',
-            '--qr-dark': field.qrDark || '#0f172a', '--qr-light': field.qrLight || '#ffffff',
           };
           return <div className={`public-certificate-snapshot-field${isQr ? ' qr' : ''}`} key={field.id} style={style}>
-            {isQr ? <>{qrSources[field.id] && <img src={qrSources[field.id]} alt="QR de vérification du certificat" />} {field.qrCaption && <small>{field.qrCaption}</small>}</> : value}
+            {isQr ? <div className={`public-certificate-snapshot-qr${field.qrFrame === 'rounded' ? ' rounded' : ''}`}>{qrSources[field.id] && <img src={qrSources[field.id]} alt="Certificate verification QR" />} {field.qrCaption && <small>{field.qrCaption}</small>}</div> : <div className="public-certificate-snapshot-inner" style={textStyle}><span>{value}</span></div>}
           </div>;
         })}
       </div>
